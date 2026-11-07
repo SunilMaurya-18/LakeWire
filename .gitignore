@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+node_modules/
+
+### World of LakeWire site ###
+web/node_modules/
+web/.next/
+web/out/
+web/.env*
+web/*.tsbuildinfo
