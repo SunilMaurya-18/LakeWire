@@ -1,4 +1,4 @@
-package dev.lakewire.broker;
+package lakewire.broker;
 
 import org.springframework.boot.SpringApplication;
 

@@ -1,4 +1,4 @@
-package dev.lakewire.broker.config;
+package lakewire.broker.config;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

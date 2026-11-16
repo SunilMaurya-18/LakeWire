@@ -1,4 +1,4 @@
-package dev.lakewire.broker;
+package lakewire.broker;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

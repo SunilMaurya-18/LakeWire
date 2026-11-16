@@ -17,7 +17,7 @@ export const manual: ManualSection[] = [
     title: "Overview",
     blocks: [
       { type: "p", text: "LakeWire is a design for a diskless log that speaks a subset of the Kafka wire protocol. Stateless Java 21 brokers are meant to write record batches to S3-compatible object storage. PostgreSQL is the intended source of truth for offsets, the committed high watermark, producer state, and broker epochs. A high watermark is the next offset that readers are allowed to see. Brokers keep no partition data on disk." },
-      { type: "note", tone: "warn", text: "This repository has a Spring Boot shell (dev.lakewire.broker) and this site. The protocol server, LKW1 codec, and SQL coordinator below are specified in the v2.0 PRD. They are not in this tree. Verification of those behaviors is pending." },
+      { type: "note", tone: "warn", text: "This repository has a Spring Boot shell (lakewire.broker) and this site. The protocol server, LKW1 codec, and SQL coordinator below are specified in the v2.0 PRD. They are not in this tree. Verification of those behaviors is pending." },
       { type: "h2", id: "clients", text: "Clients" },
       { type: "p", text: "The v0.1 target is a subset, not full Kafka compatibility. Planned calls on port 9092 are ApiVersions, Metadata, Produce, Fetch, ListOffsets, InitProducerId, CreateTopics, and DeleteTopics. The acceptance target is the Apache Kafka Java client, the console tools, and kcat. Consumer groups, transactions, SASL, TLS, and fetch sessions are not in that subset." },
       { type: "h2", id: "deps", text: "Two dependencies" },
@@ -100,7 +100,7 @@ export const manual: ManualSection[] = [
     blocks: [
       { type: "p", text: "First success, today, is inspecting the shell that is actually in the repository. A Kafka produce and consume loop is the v0.1 plan. It is not a copy-and-paste path yet." },
       { type: "h2", id: "dev", text: "Local" },
-      { type: "p", text: "Prerequisite: Java 21, which is what the Maven pom requests. The wrapper is mvnw on Unix and mvnw.cmd on Windows. The only application entry is dev.lakewire.broker.LakewireBrokerApplication. compose.yaml can start Postgres and Redis. It does not start a broker or a bucket. The v2 PRD describes a Gradle multi-module layout and lakewire dev. This repository is one Maven module. Those do not match. The README still mentions gradlew bootRun." },
+      { type: "p", text: "Prerequisite: Java 21, which is what the Maven pom requests. The wrapper is mvnw on Unix and mvnw.cmd on Windows. The only application entry is lakewire.broker.LakewireBrokerApplication. compose.yaml can start Postgres and Redis. It does not start a broker or a bucket. The v2 PRD describes a Gradle multi-module layout and lakewire dev. This repository is one Maven module. Those do not match. The README still mentions gradlew bootRun." },
       { type: "code", text: "mvnw.cmd -v" },
       { type: "p", text: "spring-boot:run is the ordinary Maven goal for this pom. This documentation pass did not verify a successful boot. The shell does not open port 9092." },
       { type: "h2", id: "produce", text: "Produce" },
