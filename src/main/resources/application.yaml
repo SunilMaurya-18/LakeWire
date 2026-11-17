@@ -1,5 +1,0 @@
-lakewire:
-  broker:
-    host: 0.0.0.0
-    port: 9092
-    max-frame-bytes: 104857600
