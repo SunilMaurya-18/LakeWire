@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
+import lakewire.broker.read.LogReader;
 import lakewire.broker.write.ProduceSink;
 import lakewire.coordinator.ClusterView;
 import lakewire.protocol.ErrorMapping;
@@ -27,6 +28,8 @@ public final class RequestRouter implements RequestProcessor {
         ApiKeys.API_VERSIONS,
         ApiKeys.METADATA,
         ApiKeys.PRODUCE,
+        ApiKeys.FETCH,
+        ApiKeys.LIST_OFFSETS,
         ApiKeys.CREATE_TOPICS,
         ApiKeys.DELETE_TOPICS
     );
@@ -34,19 +37,25 @@ public final class RequestRouter implements RequestProcessor {
     private final ClusterView topics;
     private final int localNodeId;
     private final ProduceSink writes;
+    private final LogReader reader;
 
     public RequestRouter() {
-        this(null, 1, null);
+        this(null, 1, null, null);
     }
 
     public RequestRouter(ClusterView topics, int localNodeId) {
-        this(topics, localNodeId, null);
+        this(topics, localNodeId, null, null);
     }
 
     public RequestRouter(ClusterView topics, int localNodeId, ProduceSink writes) {
+        this(topics, localNodeId, writes, null);
+    }
+
+    public RequestRouter(ClusterView topics, int localNodeId, ProduceSink writes, LogReader reader) {
         this.topics = topics;
         this.localNodeId = localNodeId;
         this.writes = writes;
+        this.reader = reader;
     }
 
     @Override
@@ -66,6 +75,8 @@ public final class RequestRouter implements RequestProcessor {
             case API_VERSIONS -> Optional.of(ApiVersionsHandler.handle(request));
             case METADATA -> Optional.of(MetadataHandler.handle(request, topics, localNodeId));
             case PRODUCE -> ProduceHandler.handle(request, topics, writes);
+            case FETCH -> Optional.of(FetchHandler.handle(request, reader));
+            case LIST_OFFSETS -> Optional.of(ListOffsetsHandler.handle(request, reader));
             case CREATE_TOPICS -> Optional.of(CreateTopicsHandler.handle(request, topics));
             case DELETE_TOPICS -> Optional.of(DeleteTopicsHandler.handle(request, topics));
             default -> Optional.of(unsupported(request));

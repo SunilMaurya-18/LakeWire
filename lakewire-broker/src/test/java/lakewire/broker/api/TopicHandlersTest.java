@@ -205,6 +205,12 @@ class TopicHandlersTest {
                 api.maxVersion(),
                 new org.apache.kafka.common.message.ProduceRequestData().setAcks((short) -1)
             ).build(api.minVersion());
+            case FETCH -> new org.apache.kafka.common.requests.FetchRequest(
+                new org.apache.kafka.common.message.FetchRequestData().setMaxWaitMs(0).setMinBytes(0),
+                api.minVersion());
+            case LIST_OFFSETS -> org.apache.kafka.common.requests.ListOffsetsRequest.Builder
+                .forConsumer(false, org.apache.kafka.common.IsolationLevel.READ_UNCOMMITTED)
+                .build(api.minVersion());
             default -> throw new IllegalStateException(api.apiKey().name());
         };
     }

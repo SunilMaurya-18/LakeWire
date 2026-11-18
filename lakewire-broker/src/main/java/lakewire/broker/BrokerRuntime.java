@@ -3,17 +3,24 @@ package lakewire.broker;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lakewire.broker.api.RequestRouter;
 import lakewire.broker.config.BrokerConfig;
 import lakewire.broker.network.KafkaServer;
+import lakewire.broker.read.BlockCache;
+import lakewire.broker.read.HwCache;
+import lakewire.broker.read.LogCatalog;
+import lakewire.broker.read.LogReader;
+import lakewire.broker.read.SegmentIndex;
 import lakewire.broker.write.WritePipeline;
 import lakewire.broker.write.WriteSettings;
 import lakewire.coordinator.BrokerRegistry;
 import lakewire.coordinator.Coordinator;
 import lakewire.coordinator.CoordinatorConfig;
 import lakewire.coordinator.CoordinatorException;
+import lakewire.coordinator.HwListener;
 import lakewire.coordinator.TopicDirectory;
 import lakewire.protocol.ErrorMapping;
 import lakewire.storage.LocalFsObjectStore;
@@ -38,6 +45,7 @@ public final class BrokerRuntime implements AutoCloseable {
     private final AtomicBoolean acceptingWrites = new AtomicBoolean();
     private Coordinator coordinator;
     private WritePipeline pipeline;
+    private HwListener hwListener;
     private KafkaServer server;
     private Thread heartbeat;
     private volatile long epoch;
@@ -92,9 +100,21 @@ public final class BrokerRuntime implements AutoCloseable {
                 config.brokerId()
             );
             pipeline.start();
+            TopicDirectory directory = new TopicDirectory(coordinator);
+            LogCatalog catalog = new LogCatalog(coordinator.dataSource());
+            hwListener = new HwListener(coordinatorConfig);
+            HwCache watermarks = new HwCache(catalog, hwListener);
+            hwListener.start();
+            hwListener.awaitReady(Duration.ofSeconds(10));
+            LogReader reader = new LogReader(
+                directory,
+                watermarks,
+                new SegmentIndex(catalog),
+                new BlockCache(store, 256L * 1024 * 1024)
+            );
             server = new KafkaServer(
                 config,
-                new RequestRouter(new TopicDirectory(coordinator), config.brokerId(), pipeline)
+                new RequestRouter(directory, config.brokerId(), pipeline, reader)
             );
             server.start();
             int advertisedPort = config.advertisedPort() == 0 ? server.boundPort() : config.advertisedPort();
@@ -172,6 +192,10 @@ public final class BrokerRuntime implements AutoCloseable {
         if (pipeline != null) {
             pipeline.close();
             pipeline = null;
+        }
+        if (hwListener != null) {
+            hwListener.close();
+            hwListener = null;
         }
         if (store != null && !storeClosed) {
             store.close();

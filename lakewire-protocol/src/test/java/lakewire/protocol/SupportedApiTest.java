@@ -32,6 +32,8 @@ class SupportedApiTest {
         assertRange(ApiKeys.API_VERSIONS, 0, 3);
         assertRange(ApiKeys.METADATA, 1, 9);
         assertRange(ApiKeys.PRODUCE, 3, 12);
+        assertRange(ApiKeys.FETCH, 4, 12);
+        assertRange(ApiKeys.LIST_OFFSETS, 1, 6);
         assertRange(ApiKeys.CREATE_TOPICS, 2, 6);
         assertRange(ApiKeys.DELETE_TOPICS, 1, 5);
     }
