@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -36,3 +36,5 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A30 | S3 user metadata `crc32c` is the unsigned decimal CRC32C of the object bytes. 5xx and connection failures retry 3 times, waiting `20ms * attempt` plus up to 20ms of jitter. A 412 on a retry is success only when HEAD size and `crc32c` match. | The prompt requires that metadata comparison and bounded jittered retries, and names neither the key nor the limits. |
 | A31 | `LAKEWIRE_S3_BUCKET` is required. `LAKEWIRE_S3_REGION` defaults to `us-east-1`. `LAKEWIRE_S3_ENDPOINT` is optional. `LAKEWIRE_S3_PATH_STYLE` defaults to true. `LAKEWIRE_S3_CONDITIONAL_PUT` defaults to true. `LAKEWIRE_S3_ACCESS_KEY` and `LAKEWIRE_S3_SECRET_KEY` are used together when both are set; otherwise the default provider chain is used. | The prompt names `LAKEWIRE_S3_*` and the default chain, not each variable. SeaweedFS and Silo need path-style access. |
 | A32 | `LocalFsObjectStore.put` refuses an existing key before `ATOMIC_MOVE`, under the store lock. | On Windows, `Files.move(..., ATOMIC_MOVE)` replaces an existing file instead of throwing `FileAlreadyExistsException`. |
+| A33 | `LAKEWIRE_STORAGE` is `fs` (default) or `s3`. `LAKEWIRE_DATA_DIR` defaults to `data`. `LAKEWIRE_BROKER_ID` defaults to 1. `LAKEWIRE_ZONE` defaults to `local`. `LAKEWIRE_ADVERTISED_HOST` defaults to `localhost`. An advertised port of 0 means the bound port. | The prompt names the variables and not every default. Port 0 is how tests bind an ephemeral port. |
+| A34 | CreateTopics replica assignments are ignored. A broker endpoint is `host:port`, split on the last colon. | The prompt accepts a replication factor and does not mention manual assignments. §8 stores one endpoint string. |

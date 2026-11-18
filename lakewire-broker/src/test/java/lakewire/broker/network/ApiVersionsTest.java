@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import lakewire.broker.config.BrokerConfig;
+import lakewire.protocol.SupportedApi;
 import org.apache.kafka.common.message.ApiVersionsRequestData;
 import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersion;
 import org.apache.kafka.common.message.DescribeClusterRequestData;
@@ -47,14 +48,15 @@ class ApiVersionsTest {
             sendRawRequest(socket, (short) 18, (short) 0, 42, false);
             DataInputStream in = new DataInputStream(socket.getInputStream());
 
+            int apis = SupportedApi.values().length;
             int size = in.readInt();
             assertThat(in.readInt()).isEqualTo(42);
             assertThat(in.readShort()).isEqualTo(Errors.NONE.code());
-            assertThat(in.readInt()).isEqualTo(1);
+            assertThat(in.readInt()).isEqualTo(apis);
             assertThat(in.readShort()).isEqualTo((short) 18);
             assertThat(in.readShort()).isEqualTo((short) 0);
             assertThat(in.readShort()).isEqualTo((short) 3);
-            assertThat(size).isEqualTo(16);
+            assertThat(size).isEqualTo(10 + apis * 6);
         }
     }
 
@@ -67,14 +69,15 @@ class ApiVersionsTest {
             sendRawRequest(socket, (short) 18, (short) 99, 7, true);
             DataInputStream in = new DataInputStream(socket.getInputStream());
 
+            int apis = SupportedApi.values().length;
             int size = in.readInt();
             assertThat(in.readInt()).isEqualTo(7);
             assertThat(in.readShort()).isEqualTo(Errors.UNSUPPORTED_VERSION.code());
-            assertThat(in.readInt()).isEqualTo(1);
+            assertThat(in.readInt()).isEqualTo(apis);
             assertThat(in.readShort()).isEqualTo((short) 18);
             assertThat(in.readShort()).isEqualTo((short) 0);
             assertThat(in.readShort()).isEqualTo((short) 3);
-            assertThat(size).isEqualTo(16);
+            assertThat(size).isEqualTo(10 + apis * 6);
         }
     }
 
@@ -89,7 +92,7 @@ class ApiVersionsTest {
                 (ApiVersionsResponse) AbstractResponse.parseResponse(client.receive(), header);
 
             assertThat(response.data().errorCode()).isEqualTo(Errors.NONE.code());
-            assertThat(response.data().apiKeys()).hasSize(1);
+            assertThat(response.data().apiKeys()).hasSize(SupportedApi.values().length);
             ApiVersion apiVersions = response.apiVersion(ApiKeys.API_VERSIONS.id);
             assertThat(apiVersions.minVersion()).isEqualTo((short) 0);
             assertThat(apiVersions.maxVersion()).isEqualTo((short) 3);

@@ -39,7 +39,7 @@ public class KafkaServer {
         this(config, new RequestRouter());
     }
 
-    KafkaServer(BrokerConfig config, RequestProcessor processor) {
+    public KafkaServer(BrokerConfig config, RequestProcessor processor) {
         this.config = config;
         this.processor = processor;
     }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +40,7 @@ class RequestOrderingTest {
             sleep((requests - id) * 20L);
             processOrder.add(id);
             running.decrementAndGet();
-            return ByteBuffer.allocate(4).putInt(0, id);
+            return Optional.of(ByteBuffer.allocate(4).putInt(0, id));
         });
         server.start();
         try (KafkaTestClient client = new KafkaTestClient(server.boundPort())) {
@@ -79,7 +80,7 @@ class RequestOrderingTest {
                 throw new IllegalStateException(e);
             }
             sleep(500);
-            return ByteBuffer.allocate(4).putInt(0, id);
+            return Optional.of(ByteBuffer.allocate(4).putInt(0, id));
         });
         server.start();
         try (KafkaTestClient first = new KafkaTestClient(server.boundPort());
@@ -111,7 +112,7 @@ class RequestOrderingTest {
                 throw new IllegalArgumentException("bad request " + id);
             }
             sleep(id == 0 ? 200 : 0);
-            return ByteBuffer.allocate(4).putInt(0, id);
+            return Optional.of(ByteBuffer.allocate(4).putInt(0, id));
         });
         server.start();
         try (KafkaTestClient client = new KafkaTestClient(server.boundPort())) {
@@ -123,6 +124,27 @@ class RequestOrderingTest {
             assertThat(client.readByteOrEof()).isEqualTo(-1);
             // Request 3 arrived after the bad one, so it must never be processed.
             assertThat(processed).containsExactly(0, 1, 2);
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void anEmptyResponseWritesNoFrameAndKeepsOrder() throws Exception {
+        KafkaServer server = new KafkaServer(CONFIG, frame -> {
+            int id = frame.getInt();
+            if (id == 1) {
+                return Optional.empty();
+            }
+            return Optional.of(ByteBuffer.allocate(4).putInt(0, id));
+        });
+        server.start();
+        try (KafkaTestClient client = new KafkaTestClient(server.boundPort())) {
+            for (int id = 0; id < 3; id++) {
+                client.send(ByteBuffer.allocate(4).putInt(0, id));
+            }
+            assertThat(client.receive().getInt()).isEqualTo(0);
+            assertThat(client.receive().getInt()).isEqualTo(2);
         } finally {
             server.stop();
         }

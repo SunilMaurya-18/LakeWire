@@ -6,6 +6,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -44,7 +45,7 @@ public class RequestHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
         // Start processing only after the previous response on this connection has been written,
         // so requests on one connection are handled one at a time, in order (like Kafka's broker).
-        CompletableFuture<ByteBuffer> response =
+        CompletableFuture<Optional<ByteBuffer>> response =
             previousWrite.thenApplyAsync(ignored -> processor.process(request), requestExecutor);
 
         // Write (or close) back on the event loop; the next request waits for this step.
@@ -56,7 +57,7 @@ public class RequestHandler extends SimpleChannelInboundHandler<ByteBuf> {
         }
     }
 
-    private Void writeOrClose(ChannelHandlerContext ctx, ByteBuffer buffer, Throwable failure) {
+    private Void writeOrClose(ChannelHandlerContext ctx, Optional<ByteBuffer> buffer, Throwable failure) {
         inFlight--;
         if (failure != null) {
             if (ctx.channel().isActive()) {
@@ -66,11 +67,12 @@ public class RequestHandler extends SimpleChannelInboundHandler<ByteBuf> {
             // Re-throw so the chain stays failed and later requests on this connection are never processed.
             throw failure instanceof CompletionException completion ? completion : new CompletionException(failure);
         }
-        if (!ctx.channel().isActive()) {
-            return null;
+        if (buffer != null && buffer.isPresent() && ctx.channel().isActive()) {
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(buffer.get()));
         }
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(buffer));
-        if (!ctx.channel().config().isAutoRead() && inFlight < MAX_IN_FLIGHT_PER_CONNECTION) {
+        if (ctx.channel().isActive()
+            && !ctx.channel().config().isAutoRead()
+            && inFlight < MAX_IN_FLIGHT_PER_CONNECTION) {
             ctx.channel().config().setAutoRead(true);
         }
         return null;

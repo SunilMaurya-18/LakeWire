@@ -1,8 +1,15 @@
 package lakewire.broker.api;
 
 import java.nio.ByteBuffer;
+import java.util.EnumSet;
+import java.util.Optional;
+import java.util.Set;
+import lakewire.coordinator.ClusterView;
+import lakewire.protocol.ErrorMapping;
 import lakewire.protocol.KafkaCodec;
 import lakewire.protocol.KafkaRequest;
+import lakewire.protocol.SupportedApi;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.RequestHeader;
@@ -14,23 +21,56 @@ public final class RequestRouter implements RequestProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(RequestRouter.class);
 
+    /** Kept in step with the switch below. {@code RequestRouterTest} fails if an API is missing. */
+    static final Set<ApiKeys> HANDLED = EnumSet.of(
+        ApiKeys.API_VERSIONS,
+        ApiKeys.METADATA,
+        ApiKeys.CREATE_TOPICS,
+        ApiKeys.DELETE_TOPICS
+    );
+
+    private final ClusterView topics;
+    private final int localNodeId;
+
+    public RequestRouter() {
+        this(null, 1);
+    }
+
+    public RequestRouter(ClusterView topics, int localNodeId) {
+        this.topics = topics;
+        this.localNodeId = localNodeId;
+    }
+
     @Override
-    public ByteBuffer process(ByteBuffer frame) {
+    public Optional<ByteBuffer> process(ByteBuffer frame) {
         KafkaRequest request = KafkaCodec.decodeRequest(frame);
         RequestHeader header = request.header();
         log.debug("{} v{} correlationId={} clientId={}",
             header.apiKey(), header.apiVersion(), header.correlationId(), header.clientId());
 
-        // Keep this switch in step with SupportedApi: every entry there needs a case here.
+        SupportedApi supported = SupportedApi.forApiKey(header.apiKey()).orElse(null);
+        if (header.apiKey() != ApiKeys.API_VERSIONS
+            && (supported == null || !supported.supportsVersion(header.apiVersion()))) {
+            return Optional.of(unsupported(request));
+        }
+
         return switch (header.apiKey()) {
-            case API_VERSIONS -> ApiVersionsHandler.handle(request);
-            default -> unsupported(request);
+            case API_VERSIONS -> Optional.of(ApiVersionsHandler.handle(request));
+            case METADATA -> Optional.of(MetadataHandler.handle(request, topics, localNodeId));
+            case CREATE_TOPICS -> Optional.of(CreateTopicsHandler.handle(request, topics));
+            case DELETE_TOPICS -> Optional.of(DeleteTopicsHandler.handle(request, topics));
+            default -> Optional.of(unsupported(request));
         };
     }
 
     /** A real Kafka API that we don't implement yet: answer with Kafka's own error shape for it. */
     private static ByteBuffer unsupported(KafkaRequest request) {
         AbstractResponse response = request.body().getErrorResponse(Errors.UNSUPPORTED_VERSION.exception());
+        return KafkaCodec.encodeResponse(request.header(), request.header().apiVersion(), response);
+    }
+
+    static ByteBuffer coordinatorUnavailable(KafkaRequest request) {
+        AbstractResponse response = request.body().getErrorResponse(ErrorMapping.COORDINATOR_UNAVAILABLE.error().exception());
         return KafkaCodec.encodeResponse(request.header(), request.header().apiVersion(), response);
     }
 }

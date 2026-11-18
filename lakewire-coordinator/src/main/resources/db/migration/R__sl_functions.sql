@@ -10,6 +10,10 @@ AS $$
         ('UNKNOWN_TOPIC_OR_PARTITION'::text, 3::smallint),
         ('NOT_LEADER_OR_FOLLOWER'::text, 6::smallint),
         ('REQUEST_TIMED_OUT'::text, 7::smallint),
+        ('INVALID_TOPIC_EXCEPTION'::text, 17::smallint),
+        ('TOPIC_ALREADY_EXISTS'::text, 36::smallint),
+        ('INVALID_PARTITIONS'::text, 37::smallint),
+        ('INVALID_CONFIG'::text, 40::smallint),
         ('OUT_OF_ORDER_SEQUENCE_NUMBER'::text, 45::smallint),
         ('INVALID_PRODUCER_EPOCH'::text, 47::smallint),
         ('UNKNOWN_PRODUCER_ID'::text, 59::smallint)
@@ -572,4 +576,83 @@ AS $$
         p_producer_ids, p_producer_epochs, p_first_seqs, p_last_seqs,
         true
     );
+$$;
+
+-- One transaction: topic row plus partition rows 0..n-1. A soft-deleted name can be reused (A2).
+CREATE OR REPLACE FUNCTION sl_create_topic(
+    p_name text,
+    p_partitions int,
+    p_retention_ms bigint,
+    p_validate_only boolean
+) RETURNS TABLE (error_code smallint, topic_id bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_id bigint;
+    v_exists smallint;
+    v_partitions smallint;
+BEGIN
+    SELECT code INTO v_exists FROM sl_kafka_error_codes() WHERE name = 'TOPIC_ALREADY_EXISTS';
+    SELECT code INTO v_partitions FROM sl_kafka_error_codes() WHERE name = 'INVALID_PARTITIONS';
+    IF p_partitions IS NULL OR p_partitions < 1 THEN
+        error_code := v_partitions;
+        topic_id := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+    IF EXISTS (SELECT 1 FROM topics WHERE name = p_name AND deleted_at IS NULL) THEN
+        error_code := v_exists;
+        topic_id := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+    IF p_validate_only THEN
+        error_code := 0;
+        topic_id := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+    BEGIN
+        INSERT INTO topics (name, partitions, config)
+        VALUES (
+            p_name,
+            p_partitions,
+            jsonb_build_object('retention.ms', p_retention_ms, 'cleanup.policy', 'delete')
+        )
+        RETURNING id INTO v_id;
+        INSERT INTO partitions (topic_id, part)
+        SELECT v_id, gs FROM generate_series(0, p_partitions - 1) AS gs;
+    EXCEPTION
+        WHEN unique_violation THEN
+            error_code := v_exists;
+            topic_id := NULL;
+            RETURN NEXT;
+            RETURN;
+    END;
+    error_code := 0;
+    topic_id := v_id;
+    RETURN NEXT;
+END;
+$$;
+
+-- Marks the topic deleted. Rows stay until retention cleanup (M8).
+CREATE OR REPLACE FUNCTION sl_delete_topic(p_name text)
+RETURNS smallint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_unknown smallint;
+    v_updated int;
+BEGIN
+    SELECT code INTO v_unknown FROM sl_kafka_error_codes() WHERE name = 'UNKNOWN_TOPIC_OR_PARTITION';
+    UPDATE topics
+    SET deleted_at = now()
+    WHERE name = p_name
+      AND deleted_at IS NULL;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    IF v_updated = 0 THEN
+        RETURN v_unknown;
+    END IF;
+    RETURN 0;
+END;
 $$;

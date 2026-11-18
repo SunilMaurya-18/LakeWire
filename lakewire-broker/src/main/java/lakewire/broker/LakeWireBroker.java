@@ -1,7 +1,9 @@
 package lakewire.broker;
 
+import java.util.Map;
 import lakewire.broker.config.BrokerConfig;
-import lakewire.broker.network.KafkaServer;
+import lakewire.coordinator.CoordinatorConfig;
+import lakewire.storage.ObjectStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,15 +15,18 @@ public final class LakeWireBroker {
     }
 
     public static void main(String[] args) {
-        BrokerConfig config = BrokerConfig.fromEnvironment(System.getenv());
-        KafkaServer server = new KafkaServer(config);
+        Map<String, String> env = System.getenv();
+        BrokerConfig config = BrokerConfig.fromEnvironment(env);
+        CoordinatorConfig coordinatorConfig = CoordinatorConfig.fromEnvironment(env);
+        ObjectStore store = BrokerRuntime.openStore(env, config);
+        BrokerRuntime runtime = new BrokerRuntime(config, coordinatorConfig, store);
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform()
-                .name("lakewire-shutdown")
-                .unstarted(() -> {
-                    log.info("Shutdown signal received, stopping LakeWire broker");
-                    server.stop();
-                    log.info("LakeWire broker stopped");
-                }));
-        server.start();
+            .name("lakewire-shutdown")
+            .unstarted(() -> {
+                log.info("Shutdown signal received, stopping LakeWire broker");
+                runtime.close();
+                log.info("LakeWire broker stopped");
+            }));
+        runtime.start();
     }
 }
