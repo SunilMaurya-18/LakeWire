@@ -19,6 +19,18 @@
             <artifactId>lakewire-protocol</artifactId>
         </dependency>
         <dependency>
+            <groupId>lakewire</groupId>
+            <artifactId>lakewire-storage</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>lakewire</groupId>
+            <artifactId>lakewire-coordinator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>lakewire</groupId>
+            <artifactId>lakewire-workers</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-transport</artifactId>
         </dependency>

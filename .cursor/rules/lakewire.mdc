@@ -1,0 +1,143 @@
+---
+description: LakeWire v0.1 build rules. Scope, pinned versions, protocol, and test constraints for every change.
+alwaysApply: true
+---
+
+# LakeWire v0.1 rules
+
+The product spec is `docs/prd/lakewire-prd-v2.0.md`. It is the source of truth.
+
+**RULES**
+
+Scope and process
+1. Build only what the PRD marks P0 / v0.1. Never add features or
+   requirements the PRD doesn't contain. Where the PRD is silent,
+   pick the simplest sound option, write it down in
+   `docs/adr/ASSUMPTIONS.md` (one line each: id, decision, reason),
+   and mention it in your report.
+2. Work one milestone at a time. For each milestone: implement → write
+   tests → run `.\mvnw.cmd clean verify` (plus the milestone's extra
+   checks) → fix until green → `git add` + `git commit` with the
+   message I give (Conventional Commits style) → **STOP and report**.
+   Never start the next milestone until I paste it.
+3. Report format: files created/changed, tests added (count), the
+   exact `clean verify` summary line(s), extra checks run and output,
+   assumptions added, anything that didn't work. If something fails
+   and you can't fix it within the milestone's design, stop and
+   report the exact error. Don't redesign silently.
+4. Git: commit locally only. **Never push, never force-push, never
+   rewrite history, never amend a commit you didn't just make.**
+5. Don't overwrite `README.md` (it exists). Propose README changes as a
+   diff in your report. Don't break `web/` (the Next.js site).
+
+Build and versions
+6. Maven only (Maven wrapper, `mvnw.cmd` on Windows). No Gradle, even
+   though the PRD says Gradle: that's a deliberate deviation.
+7. Pin every dependency and plugin version as a property in the root
+   `pom.xml` `<properties>` + `<dependencyManagement>` /
+   `<pluginManagement>`. No version ranges, no `LATEST`, no SNAPSHOT
+   deps. Docker images are pinned to exact tags too.
+8. Use only the versions in the table at the end of these rules. If
+   you need a library that isn't listed, verify the exact latest
+   stable version on Maven Central (search.maven.org or
+   repo1.maven.org metadata) and its license, say so in the report,
+   and keep dependencies minimal.
+9. **Never invent APIs.** Before using a class or method from a
+   library, confirm it exists in the pinned version (open the jar in
+   the IDE, the javadoc for that version, or the source). If unsure,
+   write a tiny test first. kafka-clients 4.4.0 note: record classes
+   (`MemoryRecords`, `DefaultRecordBatch`, `RecordBatch`) live in
+   `org.apache.kafka.common.record.internal`.
+10. Java 21, `-Xlint:all` clean, no `sun.*`, no preview features.
+    Virtual threads for blocking work; the Netty event loop never
+    blocks. Prefer records and `final` classes; no Lombok.
+11. Spring Boot is allowed **only** in `lakewire-admin`. Postgres +
+    Flyway only in the coordinator (and the admin reads through it).
+    No Redis anywhere.
+
+Protocol and correctness
+12. Encode and decode Kafka messages only with kafka-clients'
+    generated message classes (`*RequestData`, `*ResponseData`,
+    `AbstractRequest.parseRequest`, `KafkaCodec`). Store and return
+    RecordBatch v2 bytes verbatim; only patch `baseOffset` on read.
+13. `SupportedApi` is the single registry. ApiVersions advertises only
+    implemented APIs; every range is pinned by `SupportedApiTest` and
+    proven by a compatibility test with the real Java client. An API
+    gets an enum entry only together with its handler and tests.
+    Unknown or unsupported API/version → `UNSUPPORTED_VERSION`.
+14. Map every failure to a Kafka error code (PRD §10.1 "Error
+    mapping"): stale broker epoch / lease or coordinator unavailable →
+    `NOT_LEADER_OR_FOLLOWER` or `REQUEST_TIMED_OUT`; sequence gap →
+    `OUT_OF_ORDER_SEQUENCE_NUMBER`; unknown/expired producer →
+    `UNKNOWN_PRODUCER_ID`; fenced epoch → `INVALID_PRODUCER_EPOCH`.
+    Keep the mapping in one class (`lakewire.protocol.ErrorMapping`)
+    with a unit test per row. Never leak stack traces to clients.
+15. Invariants I1–I8 (PRD §11) are design constraints, not just tests.
+    Every lease, TTL, grace and expiry decision uses the **Postgres
+    clock** (`now()`), never the broker clock. Visible = committed:
+    never return data at or above the HW read from Postgres. An ack
+    is sent only after the object is in storage **and** the commit
+    transaction returned.
+16. All coordinator writes go through the `sl_*` SQL functions in
+    `lakewire-coordinator`. Keep `synchronous_commit` at its default.
+
+Tests
+17. Unit tests: JUnit 6 + AssertJ. Property-style tests: JUnit
+    `@RepeatedTest`/`@ParameterizedTest` driven by a seeded
+    `java.util.SplittableRandom`; print the seed on failure so it can
+    be replayed. Don't use jqwik (see table note).
+18. Integration tests are named `*IT.java`, run by maven-failsafe in
+    `verify`, and use Testcontainers 2.0.5 for Postgres, S3 and
+    Toxiproxy. They need Docker Desktop running; if Docker is
+    missing, fail with a clear message rather than skip silently.
+19. Tests never sleep for correctness; use Awaitility or explicit
+    latches with timeouts. Every socket/client in tests has a timeout.
+
+Security and hygiene
+20. No secrets in git. Config comes from environment variables
+    (`LAKEWIRE_*`); local values go in a gitignored `.env`; commit
+    only `.env.example` with placeholder values. Never print secrets
+    in logs.
+21. `.gitattributes`: `* text=auto eol=lf`, `*.cmd text eol=crlf`,
+    `*.bat text eol=crlf` (shell scripts inside containers must be LF).
+
+**Pinned versions (verified on Maven Central / registries, Nov 2026)**
+
+| What | Version |
+| --- | --- |
+| Java | 21 (`maven.compiler.release` 21) |
+| kafka-clients | 4.4.0 (keep) |
+| Netty BOM | 4.2.21.Final (keep) |
+| slf4j / logback | 2.0.20 / 1.6.7 (keep) |
+| JUnit BOM / AssertJ | 6.1.3 / 3.27.7 (keep) |
+| pgjdbc `org.postgresql:postgresql` | 42.7.14 |
+| HikariCP | 7.1.0 |
+| Flyway `flyway-core` + `flyway-database-postgresql` | 13.12.2 |
+| AWS SDK v2 BOM (`software.amazon.awssdk:bom`) | 2.59.3 |
+| AWS CRT HTTP client (`aws-crt-client`, via BOM) | from BOM 2.59.3 |
+| Caffeine | 3.3.1 |
+| Micrometer `micrometer-registry-prometheus` | 1.17.2 |
+| Testcontainers BOM (`testcontainers-postgresql`, `-minio`, `-toxiproxy`, `-junit-jupiter`) | 2.0.5 |
+| Awaitility | 4.3.0 |
+| picocli | 4.7.7 |
+| Zonky `embedded-postgres` / binaries BOM | 2.2.2 / 18.7.0 |
+| Spring Boot (admin only, BOM import) | 4.1.2 |
+| maven-compiler / surefire / failsafe | 3.16.0 / 3.6.1 / 3.6.1 |
+| maven-shade-plugin | 3.6.2 |
+| maven-enforcer / exec-maven-plugin | 3.7.0 / 3.7.0 |
+| JReleaser Maven plugin | 1.27.0 |
+| Docker: Postgres | `postgres:18.7-alpine` |
+| Docker: S3 (default) | `chrislusf/seaweedfs:4.54` |
+| Docker: S3 (MinIO-compatible) | `pgsty/silo:RELEASE.2026-11-12T00-00-00Z` |
+| Docker: Toxiproxy | `ghcr.io/shopify/toxiproxy:2.13.0` |
+| Docker: Prometheus / Grafana | `prom/prometheus:v3.16.0` / `grafana/grafana:13.3.1` |
+| Docker: JDK build / JRE run | `eclipse-temurin:21.0.13_9-jdk-noble` / `eclipse-temurin:21.0.13_9-jre-noble` |
+| Docker: Kafka CLI tools / kcat (tests only) | `apache/kafka:4.4.0` / `edenhill/kcat:1.7.1` |
+| GitHub Actions | checkout v7.0.1, setup-java v6.3.0, upload-artifact v7.0.2, docker/login v4.8.0, setup-buildx v4.4.1, build-push v7.4.0, metadata v6.2.0 |
+
+Notes: jqwik 1.10.x runs on JUnit Platform 1.14 (not 6) and its author
+discourages AI-agent use, so it's replaced by seeded JUnit tests.
+`minio/minio` images are gone from Docker Hub; `pgsty/silo` is the
+maintained MinIO-compatible fork used in Testcontainers docs.
+Spring Boot 3.x is out of OSS support (3.5 ended 30 Jun 2026), so the
+admin uses 4.1.2 instead of the PRD's "Spring Boot 3".

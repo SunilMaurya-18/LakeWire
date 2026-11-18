@@ -1,76 +1,115 @@
 package lakewire.broker.network;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
+import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import lakewire.broker.api.RequestProcessor;
+import lakewire.broker.api.RequestRouter;
 import lakewire.broker.config.BrokerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
-
 public class KafkaServer {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaServer.class);
-    private final ApiVersionsHandler apiVersionsHandler = new ApiVersionsHandler();
-    private final BrokerConfig props;
+
+    private static final long REQUEST_DRAIN_SECONDS = 10;
+
+    private final BrokerConfig config;
+    private final RequestProcessor processor;
+    private ExecutorService requestExecutor;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
     private volatile boolean running;
 
-    public KafkaServer(BrokerConfig props) {
-        this.props = props;
+    public KafkaServer(BrokerConfig config) {
+        this(config, new RequestRouter());
+    }
+
+    KafkaServer(BrokerConfig config, RequestProcessor processor) {
+        this.config = config;
+        this.processor = processor;
     }
 
     public synchronized void start() {
+        if (running) {
+            return;
+        }
+        requestExecutor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("lakewire-request-", 0).factory());
         bossGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
         workerGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         try {
             ServerBootstrap bootstrap = new ServerBootstrap()
-                    .group(bossGroup, workerGroup)
-                    .channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_BACKLOG, 1024)
-                    .childOption(ChannelOption.TCP_NODELAY, true)
-                    .childOption(ChannelOption.SO_KEEPALIVE, true)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
-                        @Override
-                        protected void initChannel(SocketChannel ch) {
-                            ch.pipeline()
-                                    .addLast("framePrepender", new LengthFieldPrepender(4))
-                                    .addLast("frameDecoder",
-                                            new LengthFieldBasedFrameDecoder(props.maxFrameBytes(), 0, 4, 0, 4))
-                                    .addLast("requestHandler", new RequestHandler(apiVersionsHandler));
-                        }
-                    });
-            serverChannel = bootstrap.bind(props.host(), props.port())
-                    .syncUninterruptibly()
-                    .channel();
+                .group(bossGroup, workerGroup)
+                .channel(NioServerSocketChannel.class)
+                .childOption(ChannelOption.TCP_NODELAY, true)
+                .childHandler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel ch) {
+                        ch.pipeline()
+                            .addLast("frameEncoder", new LengthFieldPrepender(4))
+                            .addLast("frameDecoder",
+                                new LengthFieldBasedFrameDecoder(config.maxFrameBytes(), 0, 4, 0, 4))
+                            .addLast("requestHandler", new RequestHandler(processor, requestExecutor));
+                    }
+                });
+            serverChannel = bootstrap.bind(config.host(), config.port()).sync().channel();
             running = true;
             log.info("LakeWire broker listening on {}", serverChannel.localAddress());
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             stop();
-            throw new IllegalStateException("Could not find " + props.host() + ":" + props.port(), e);
+            throw new IllegalStateException("Interrupted while binding", e);
+        } catch (RuntimeException e) {
+            stop();
+            throw e;
         }
     }
 
     public synchronized void stop() {
-        running = false;
         if (serverChannel != null) {
-            serverChannel.close().awaitUninterruptibly();
+            serverChannel.close().syncUninterruptibly();
             serverChannel = null;
         }
+        if (requestExecutor != null) {
+            drain(requestExecutor);
+            requestExecutor = null;
+        }
         if (bossGroup != null) {
-            bossGroup.shutdownGracefully().syncUninterruptibly();
+            bossGroup.shutdownGracefully(0, 2, TimeUnit.SECONDS).syncUninterruptibly();
             bossGroup = null;
         }
         if (workerGroup != null) {
-            workerGroup.shutdownGracefully().syncUninterruptibly();
+            workerGroup.shutdownGracefully(0, 2, TimeUnit.SECONDS).syncUninterruptibly();
             workerGroup = null;
+        }
+        running = false;
+    }
+
+    /** Lets in-flight requests finish (their responses still get written), then interrupts stragglers. */
+    private static void drain(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(REQUEST_DRAIN_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -81,5 +120,4 @@ public class KafkaServer {
     public int boundPort() {
         return ((InetSocketAddress) serverChannel.localAddress()).getPort();
     }
-
 }

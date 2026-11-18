@@ -5,6 +5,10 @@ import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersion;
 import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersionCollection;
 import org.apache.kafka.common.protocol.ApiKeys;
 
+/**
+ * The single registry of Kafka APIs that LakeWire implements, with the version range we answer.
+ * ApiVersions advertises exactly this list (PRD §10.1), so add an entry here only when its handler exists.
+ */
 public enum SupportedApi {
     API_VERSIONS(ApiKeys.API_VERSIONS, (short) 0, (short) 3);
 
@@ -43,14 +47,14 @@ public enum SupportedApi {
         return Optional.empty();
     }
 
-
+    /** Builds a fresh collection each call: Kafka's collection links its elements, so they can't be shared. */
     public static ApiVersionCollection advertisedApiVersions() {
         ApiVersionCollection collection = new ApiVersionCollection();
         for (SupportedApi api : values()) {
             collection.add(new ApiVersion()
-                    .setApiKey(api.apiKey.id)
-                    .setMinVersion(api.minVersion)
-                    .setMaxVersion(api.maxVersion));
+                .setApiKey(api.apiKey.id)
+                .setMinVersion(api.minVersion)
+                .setMaxVersion(api.maxVersion));
         }
         return collection;
     }
