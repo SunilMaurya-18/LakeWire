@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -29,3 +29,6 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A23 | `lakewire-testkit` in v0.1 is the shared internal test infrastructure; publishing it to Maven Central is v1.0 (§18). | §15.1 lists it; §18 puts the public module at v1.0. |
 | A24 | Zone-aware Metadata (leader in the client's zone) ships in v0.1; the gRPC shared cache does not. | §10.1 and D9 put zone-aware Metadata in v0.1; §6 puts the shared cache in v0.2. |
 | A25 | Silo is constructed with Testcontainers `MinIOContainer` after `DockerImageName.asCompatibleSubstituteFor("minio/minio")`. | `MinIOContainer` in Testcontainers 2.0.5 allowlists only `minio/minio`. `pgsty/silo` is the image A1 requires. |
+| A26 | `sl_register_broker` and `sl_heartbeat` take optional `p_lease_ms bigint DEFAULT 10000`. Java passes `CoordinatorConfig.leaseMs`. Expiry is still `now() + p_lease_ms`. Commit result `idx` is the 0-based input position (`generate_subscripts - 1`). | The prompt's SQL signature has no lease argument, and it also says the lease length comes from config. A default keeps both. Java lists are 0-based. |
+| A27 | Coordinator env: `LAKEWIRE_PG_URL`, `LAKEWIRE_PG_USER`, `LAKEWIRE_PG_PASSWORD`, `LAKEWIRE_MIGRATE` (default true), `LAKEWIRE_LEASE_MS` (default 10000), `LAKEWIRE_HEARTBEAT_MS` (default 2000), `LAKEWIRE_GROUP_COMMIT` (default false; ADR-001). | The PRD names the lease and the flag, not the variable names. Heartbeat interval is the caller's schedule; M1 does not start that thread. |
+| A28 | A commit that accepts nothing inserts `DELETE_PENDING` with `delete_after = now() + interval '5 minutes'`. `sl_commit_object_rowloop` is lab-only and is not the production path. | §9.1 grace default is 5 minutes (A17). There is no settings table in v0.1. The Day-3 lab needs the per-row loop beside the set-based function. |
