@@ -70,6 +70,17 @@ public final class Lkw1Writer {
         return out.array();
     }
 
+    public static long[] chunkStarts(String brokerId, List<Lkw1Chunk> chunks) {
+        byte[] brokerBytes = brokerId.getBytes(StandardCharsets.UTF_8);
+        long cursor = 4L + 1 + 2 + brokerBytes.length + 8 + 8;
+        long[] starts = new long[chunks.size()];
+        for (int i = 0; i < chunks.size(); i++) {
+            starts[i] = cursor;
+            cursor += chunks.get(i).records().length;
+        }
+        return starts;
+    }
+
     public static List<Lkw1Chunk> chunks(Lkw1Chunk... chunks) {
         return new ArrayList<>(Arrays.asList(chunks));
     }

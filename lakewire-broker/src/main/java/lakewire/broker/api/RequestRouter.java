@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
+import lakewire.broker.write.ProduceSink;
 import lakewire.coordinator.ClusterView;
 import lakewire.protocol.ErrorMapping;
 import lakewire.protocol.KafkaCodec;
@@ -25,20 +26,27 @@ public final class RequestRouter implements RequestProcessor {
     static final Set<ApiKeys> HANDLED = EnumSet.of(
         ApiKeys.API_VERSIONS,
         ApiKeys.METADATA,
+        ApiKeys.PRODUCE,
         ApiKeys.CREATE_TOPICS,
         ApiKeys.DELETE_TOPICS
     );
 
     private final ClusterView topics;
     private final int localNodeId;
+    private final ProduceSink writes;
 
     public RequestRouter() {
-        this(null, 1);
+        this(null, 1, null);
     }
 
     public RequestRouter(ClusterView topics, int localNodeId) {
+        this(topics, localNodeId, null);
+    }
+
+    public RequestRouter(ClusterView topics, int localNodeId, ProduceSink writes) {
         this.topics = topics;
         this.localNodeId = localNodeId;
+        this.writes = writes;
     }
 
     @Override
@@ -57,6 +65,7 @@ public final class RequestRouter implements RequestProcessor {
         return switch (header.apiKey()) {
             case API_VERSIONS -> Optional.of(ApiVersionsHandler.handle(request));
             case METADATA -> Optional.of(MetadataHandler.handle(request, topics, localNodeId));
+            case PRODUCE -> ProduceHandler.handle(request, topics, writes);
             case CREATE_TOPICS -> Optional.of(CreateTopicsHandler.handle(request, topics));
             case DELETE_TOPICS -> Optional.of(DeleteTopicsHandler.handle(request, topics));
             default -> Optional.of(unsupported(request));

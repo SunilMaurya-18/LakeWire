@@ -200,6 +200,11 @@ class TopicHandlersTest {
             case METADATA -> new MetadataRequest(new MetadataRequestData(), api.minVersion());
             case CREATE_TOPICS -> new CreateTopicsRequest.Builder(new CreateTopicsRequestData()).build(api.minVersion());
             case DELETE_TOPICS -> new DeleteTopicsRequest.Builder(new DeleteTopicsRequestData()).build(api.minVersion());
+            case PRODUCE -> new org.apache.kafka.common.requests.ProduceRequest.Builder(
+                api.minVersion(),
+                api.maxVersion(),
+                new org.apache.kafka.common.message.ProduceRequestData().setAcks((short) -1)
+            ).build(api.minVersion());
             default -> throw new IllegalStateException(api.apiKey().name());
         };
     }

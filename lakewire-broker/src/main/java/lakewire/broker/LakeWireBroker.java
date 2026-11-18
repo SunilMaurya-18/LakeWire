@@ -2,6 +2,7 @@ package lakewire.broker;
 
 import java.util.Map;
 import lakewire.broker.config.BrokerConfig;
+import lakewire.broker.write.WriteSettings;
 import lakewire.coordinator.CoordinatorConfig;
 import lakewire.storage.ObjectStore;
 import org.slf4j.Logger;
@@ -19,7 +20,8 @@ public final class LakeWireBroker {
         BrokerConfig config = BrokerConfig.fromEnvironment(env);
         CoordinatorConfig coordinatorConfig = CoordinatorConfig.fromEnvironment(env);
         ObjectStore store = BrokerRuntime.openStore(env, config);
-        BrokerRuntime runtime = new BrokerRuntime(config, coordinatorConfig, store);
+        BrokerRuntime runtime = new BrokerRuntime(
+            config, coordinatorConfig, store, WriteSettings.fromEnvironment(env));
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform()
             .name("lakewire-shutdown")
             .unstarted(() -> {

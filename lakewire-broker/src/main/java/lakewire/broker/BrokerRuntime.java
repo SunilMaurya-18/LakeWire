@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import lakewire.broker.api.RequestRouter;
 import lakewire.broker.config.BrokerConfig;
 import lakewire.broker.network.KafkaServer;
+import lakewire.broker.write.WritePipeline;
+import lakewire.broker.write.WriteSettings;
 import lakewire.coordinator.BrokerRegistry;
 import lakewire.coordinator.Coordinator;
 import lakewire.coordinator.CoordinatorConfig;
@@ -32,8 +34,10 @@ public final class BrokerRuntime implements AutoCloseable {
     private final BrokerConfig config;
     private final CoordinatorConfig coordinatorConfig;
     private final ObjectStore store;
-    private final AtomicBoolean acceptingWrites = new AtomicBoolean(true);
+    private final WriteSettings writeSettings;
+    private final AtomicBoolean acceptingWrites = new AtomicBoolean();
     private Coordinator coordinator;
+    private WritePipeline pipeline;
     private KafkaServer server;
     private Thread heartbeat;
     private volatile long epoch;
@@ -41,9 +45,19 @@ public final class BrokerRuntime implements AutoCloseable {
     private boolean storeClosed;
 
     public BrokerRuntime(BrokerConfig config, CoordinatorConfig coordinatorConfig, ObjectStore store) {
+        this(config, coordinatorConfig, store, WriteSettings.defaults());
+    }
+
+    public BrokerRuntime(
+        BrokerConfig config,
+        CoordinatorConfig coordinatorConfig,
+        ObjectStore store,
+        WriteSettings writeSettings
+    ) {
         this.config = config;
         this.coordinatorConfig = coordinatorConfig;
         this.store = store;
+        this.writeSettings = writeSettings;
     }
 
     public static ObjectStore openStore(Map<String, String> env, BrokerConfig config) {
@@ -69,7 +83,19 @@ public final class BrokerRuntime implements AutoCloseable {
         try {
             coordinator = new Coordinator(coordinatorConfig);
             coordinator.start();
-            server = new KafkaServer(config, new RequestRouter(new TopicDirectory(coordinator), config.brokerId()));
+            pipeline = new WritePipeline(
+                writeSettings,
+                store,
+                coordinator,
+                () -> epoch,
+                acceptingWrites,
+                config.brokerId()
+            );
+            pipeline.start();
+            server = new KafkaServer(
+                config,
+                new RequestRouter(new TopicDirectory(coordinator), config.brokerId(), pipeline)
+            );
             server.start();
             int advertisedPort = config.advertisedPort() == 0 ? server.boundPort() : config.advertisedPort();
             String endpoint = config.advertisedHost() + ":" + advertisedPort;
@@ -98,9 +124,12 @@ public final class BrokerRuntime implements AutoCloseable {
         return acceptingWrites.get();
     }
 
-    /** M4 attaches produce futures here. M3 has no in-flight writes yet. */
+    /** Completes buffered and in-flight produce futures. A commit already in Postgres still stands. */
     public void failInFlight(short errorCode) {
         log.info("failing in-flight writes with error {}", errorCode);
+        if (pipeline != null) {
+            pipeline.failAll(errorCode);
+        }
     }
 
     private void beat(BrokerRegistry registry, String endpoint) {
@@ -139,6 +168,10 @@ public final class BrokerRuntime implements AutoCloseable {
         if (server != null) {
             server.stop();
             server = null;
+        }
+        if (pipeline != null) {
+            pipeline.close();
+            pipeline = null;
         }
         if (store != null && !storeClosed) {
             store.close();

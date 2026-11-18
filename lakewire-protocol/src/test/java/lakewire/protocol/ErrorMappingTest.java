@@ -36,4 +36,9 @@ class ErrorMappingTest {
     void fencedEpochIsInvalidProducerEpoch() {
         assertThat(ErrorMapping.FENCED_EPOCH.code()).isEqualTo(Errors.INVALID_PRODUCER_EPOCH.code());
     }
+
+    @Test
+    void storageRetriesExhaustedIsKafkaStorageError() {
+        assertThat(ErrorMapping.STORAGE_RETRIES_EXHAUSTED.code()).isEqualTo(Errors.KAFKA_STORAGE_ERROR.code());
+    }
 }
