@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -32,3 +32,7 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A26 | `sl_register_broker` and `sl_heartbeat` take optional `p_lease_ms bigint DEFAULT 10000`. Java passes `CoordinatorConfig.leaseMs`. Expiry is still `now() + p_lease_ms`. Commit result `idx` is the 0-based input position (`generate_subscripts - 1`). | The prompt's SQL signature has no lease argument, and it also says the lease length comes from config. A default keeps both. Java lists are 0-based. |
 | A27 | Coordinator env: `LAKEWIRE_PG_URL`, `LAKEWIRE_PG_USER`, `LAKEWIRE_PG_PASSWORD`, `LAKEWIRE_MIGRATE` (default true), `LAKEWIRE_LEASE_MS` (default 10000), `LAKEWIRE_HEARTBEAT_MS` (default 2000), `LAKEWIRE_GROUP_COMMIT` (default false; ADR-001). | The PRD names the lease and the flag, not the variable names. Heartbeat interval is the caller's schedule; M1 does not start that thread. |
 | A28 | A commit that accepts nothing inserts `DELETE_PENDING` with `delete_after = now() + interval '5 minutes'`. `sl_commit_object_rowloop` is lab-only and is not the production path. | §9.1 grace default is 5 minutes (A17). There is no settings table in v0.1. The Day-3 lab needs the per-row loop beside the set-based function. |
+| A29 | LKW1 index `byte_start` is the absolute offset from the first byte of the object. A store that does not answer the second probe PUT with 412 falls back to HEAD-before-PUT; the probe result is logged. | Range GET needs a file offset. §7.2 does not say whether `byte_start` is relative to the body or the object. `If-None-Match` is not universal on S3-compatible stores. |
+| A30 | S3 user metadata `crc32c` is the unsigned decimal CRC32C of the object bytes. 5xx and connection failures retry 3 times, waiting `20ms * attempt` plus up to 20ms of jitter. A 412 on a retry is success only when HEAD size and `crc32c` match. | The prompt requires that metadata comparison and bounded jittered retries, and names neither the key nor the limits. |
+| A31 | `LAKEWIRE_S3_BUCKET` is required. `LAKEWIRE_S3_REGION` defaults to `us-east-1`. `LAKEWIRE_S3_ENDPOINT` is optional. `LAKEWIRE_S3_PATH_STYLE` defaults to true. `LAKEWIRE_S3_CONDITIONAL_PUT` defaults to true. `LAKEWIRE_S3_ACCESS_KEY` and `LAKEWIRE_S3_SECRET_KEY` are used together when both are set; otherwise the default provider chain is used. | The prompt names `LAKEWIRE_S3_*` and the default chain, not each variable. SeaweedFS and Silo need path-style access. |
+| A32 | `LocalFsObjectStore.put` refuses an existing key before `ATOMIC_MOVE`, under the store lock. | On Windows, `Files.move(..., ATOMIC_MOVE)` replaces an existing file instead of throwing `FileAlreadyExistsException`. |
