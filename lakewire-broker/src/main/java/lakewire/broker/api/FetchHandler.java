@@ -3,6 +3,7 @@ package lakewire.broker.api;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import lakewire.broker.metrics.LakeWireMetrics;
 import lakewire.broker.read.LogReader;
 import lakewire.broker.read.PartitionRead;
 import lakewire.coordinator.CoordinatorException;
@@ -30,6 +31,19 @@ public final class FetchHandler {
     }
 
     public static ByteBuffer handle(KafkaRequest request, LogReader reader) {
+        return handle(request, reader, LakeWireMetrics.noop());
+    }
+
+    public static ByteBuffer handle(KafkaRequest request, LogReader reader, LakeWireMetrics metrics) {
+        long started = System.nanoTime();
+        try {
+            return handleInner(request, reader);
+        } finally {
+            metrics.fetchNanos(System.nanoTime() - started);
+        }
+    }
+
+    private static ByteBuffer handleInner(KafkaRequest request, LogReader reader) {
         if (reader == null) {
             return RequestRouter.coordinatorUnavailable(request);
         }

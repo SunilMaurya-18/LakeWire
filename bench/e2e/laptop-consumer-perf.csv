@@ -1,0 +1,9 @@
+# label=laptop
+# brokers=1 in-process
+# storage=SeaweedFS 4.54
+# kafka-clients=4.4.0
+# lakewire=0.1.0-SNAPSHOT
+# hardware=Windows 11 amd64 cpus=12
+# timestamp=2026-11-19T19:13:30.073655Z
+records_read,wall_ms_note
+32,included in MetricsEndpointIT consumeTwice

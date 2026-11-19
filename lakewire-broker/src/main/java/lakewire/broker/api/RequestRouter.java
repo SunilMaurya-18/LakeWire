@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
+import lakewire.broker.metrics.LakeWireMetrics;
 import lakewire.broker.read.LogReader;
 import lakewire.broker.write.ProduceSink;
 import lakewire.coordinator.ClusterView;
@@ -40,6 +41,7 @@ public final class RequestRouter implements RequestProcessor {
     private final ProduceSink writes;
     private final LogReader reader;
     private final Coordinator producers;
+    private final LakeWireMetrics metrics;
 
     public RequestRouter() {
         this(null, null, null, null);
@@ -63,10 +65,21 @@ public final class RequestRouter implements RequestProcessor {
         LogReader reader,
         Coordinator producers
     ) {
+        this(topics, writes, reader, producers, LakeWireMetrics.noop());
+    }
+
+    public RequestRouter(
+        ClusterView topics,
+        ProduceSink writes,
+        LogReader reader,
+        Coordinator producers,
+        LakeWireMetrics metrics
+    ) {
         this.topics = topics;
         this.writes = writes;
         this.reader = reader;
         this.producers = producers;
+        this.metrics = metrics == null ? LakeWireMetrics.noop() : metrics;
     }
 
     @Override
@@ -85,8 +98,8 @@ public final class RequestRouter implements RequestProcessor {
         return switch (header.apiKey()) {
             case API_VERSIONS -> Optional.of(ApiVersionsHandler.handle(request));
             case METADATA -> Optional.of(MetadataHandler.handle(request, topics));
-            case PRODUCE -> ProduceHandler.handle(request, topics, writes);
-            case FETCH -> Optional.of(FetchHandler.handle(request, reader));
+            case PRODUCE -> ProduceHandler.handle(request, topics, writes, metrics);
+            case FETCH -> Optional.of(FetchHandler.handle(request, reader, metrics));
             case LIST_OFFSETS -> Optional.of(ListOffsetsHandler.handle(request, reader));
             case INIT_PRODUCER_ID -> Optional.of(InitProducerIdHandler.handle(request, producers));
             case CREATE_TOPICS -> Optional.of(CreateTopicsHandler.handle(request, topics));

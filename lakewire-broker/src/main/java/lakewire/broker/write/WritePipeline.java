@@ -17,6 +17,7 @@ import lakewire.coordinator.CommitRequest;
 import lakewire.coordinator.CommitResult;
 import lakewire.coordinator.Coordinator;
 import lakewire.coordinator.CoordinatorException;
+import lakewire.broker.metrics.LakeWireMetrics;
 import lakewire.coordinator.GroupCommitter;
 import lakewire.protocol.ErrorMapping;
 import lakewire.storage.ObjectAlreadyExistsException;
@@ -52,6 +53,7 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
     private final LinkedBlockingQueue<Sealed> commitQueue = new LinkedBlockingQueue<>();
     private final List<Sealed> inflight = new CopyOnWriteArrayList<>();
     private final WriteBuffer buffer;
+    private final LakeWireMetrics metrics;
     private final AtomicBoolean running = new AtomicBoolean();
     private Thread sealer;
     private Thread committer;
@@ -65,6 +67,19 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
         int brokerId,
         Runnable onFence
     ) {
+        this(settings, store, coordinator, epoch, accepting, brokerId, onFence, LakeWireMetrics.noop());
+    }
+
+    public WritePipeline(
+        WriteSettings settings,
+        ObjectStore store,
+        Coordinator coordinator,
+        LongSupplier epoch,
+        AtomicBoolean accepting,
+        int brokerId,
+        Runnable onFence,
+        LakeWireMetrics metrics
+    ) {
         this.settings = settings;
         this.store = store;
         this.registry = new BrokerRegistry(coordinator);
@@ -74,6 +89,7 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
         this.onFence = onFence == null ? () -> { } : onFence;
         this.brokerId = Integer.toString(brokerId);
         this.uploads = new Semaphore(settings.uploadConcurrency());
+        this.metrics = metrics == null ? LakeWireMetrics.noop() : metrics;
         this.buffer = new WriteBuffer(
             settings.lingerMs(),
             settings.objectMaxBytes(),
@@ -237,7 +253,10 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
                 if (sealed.failed.get()) {
                     continue;
                 }
+                long started = System.nanoTime();
                 List<CommitResult> results = commitWithReplay(request);
+                metrics.commitNanos(System.nanoTime() - started);
+                metrics.objectBytes(request.sizeBytes());
                 sealed.succeed(results);
                 if (fenced(results)) {
                     accepting.set(false);

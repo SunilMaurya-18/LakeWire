@@ -8,6 +8,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lakewire.broker.api.RequestRouter;
 import lakewire.broker.config.BrokerConfig;
+import lakewire.broker.metrics.LakeWireMetrics;
+import lakewire.broker.metrics.MetricsObjectStore;
+import lakewire.broker.metrics.MetricsServer;
 import lakewire.broker.network.KafkaServer;
 import lakewire.broker.read.BlockCache;
 import lakewire.broker.read.HwCache;
@@ -52,6 +55,8 @@ public final class BrokerRuntime implements AutoCloseable {
     private WritePipeline pipeline;
     private HwListener hwListener;
     private KafkaServer server;
+    private LakeWireMetrics metrics;
+    private MetricsServer metricsServer;
     private BrokerRegistry registry;
     private String advertisedEndpoint;
     private Thread heartbeat;
@@ -109,16 +114,20 @@ public final class BrokerRuntime implements AutoCloseable {
         try {
             coordinator = new Coordinator(coordinatorConfig);
             coordinator.start();
+            metrics = new LakeWireMetrics();
+            ObjectStore counted = new MetricsObjectStore(store, metrics);
             pipeline = new WritePipeline(
                 writeSettings,
-                store,
+                counted,
                 coordinator,
                 () -> epoch,
                 acceptingWrites,
                 config.brokerId(),
-                this::recoverFromFence
+                this::recoverFromFence,
+                metrics
             );
             pipeline.start();
+            metrics.bindBuffer(pipeline.buffer());
             TopicDirectory directory = new TopicDirectory(coordinator);
             LogCatalog catalog = new LogCatalog(coordinator.dataSource());
             hwListener = new HwListener(coordinatorConfig);
@@ -129,13 +138,14 @@ public final class BrokerRuntime implements AutoCloseable {
                 directory,
                 watermarks,
                 new SegmentIndex(catalog),
-                new BlockCache(store, 256L * 1024 * 1024)
+                new BlockCache(counted, 256L * 1024 * 1024, metrics)
             );
             server = new KafkaServer(
                 config,
-                new RequestRouter(directory, pipeline, reader, coordinator)
+                new RequestRouter(directory, pipeline, reader, coordinator, metrics)
             );
             server.start();
+            metricsServer = new MetricsServer(config.host(), config.metricsPort(), metrics);
             int advertisedPort = config.advertisedPort() == 0 ? server.boundPort() : config.advertisedPort();
             String endpoint = config.advertisedHost() + ":" + advertisedPort;
             registry = new BrokerRegistry(coordinator);
@@ -145,7 +155,9 @@ public final class BrokerRuntime implements AutoCloseable {
             open = true;
             heartbeat = Thread.ofVirtual().name("lakewire-heartbeat").start(this::beat);
             if (workerConfig.enabled()) {
-                workers = new WorkerRuntime(workerConfig, coordinator, store, new WorkerMetrics());
+                WorkerMetrics workerMetrics = new WorkerMetrics();
+                workerMetrics.setListener(metrics::auditViolation);
+                workers = new WorkerRuntime(workerConfig, coordinator, counted, workerMetrics);
                 workers.start();
             }
             log.info("broker {} epoch {} listening on {} advertising {}",
@@ -158,6 +170,10 @@ public final class BrokerRuntime implements AutoCloseable {
 
     public int port() {
         return server.boundPort();
+    }
+
+    public int metricsPort() {
+        return metricsServer.boundPort();
     }
 
     public long epoch() {
@@ -213,6 +229,14 @@ public final class BrokerRuntime implements AutoCloseable {
     }
 
     private void cleanup() {
+        if (metricsServer != null) {
+            metricsServer.close();
+            metricsServer = null;
+        }
+        if (metrics != null) {
+            metrics.close();
+            metrics = null;
+        }
         if (workers != null) {
             workers.close();
             workers = null;

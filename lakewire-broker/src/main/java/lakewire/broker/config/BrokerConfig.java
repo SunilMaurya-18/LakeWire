@@ -11,7 +11,8 @@ public record BrokerConfig(
     String zone,
     String advertisedHost,
     int advertisedPort,
-    Path dataDir
+    Path dataDir,
+    int metricsPort
 ) {
 
     public static final String DEFAULT_HOST = "0.0.0.0";
@@ -46,11 +47,28 @@ public record BrokerConfig(
         if (dataDir == null) {
             throw new IllegalArgumentException("dataDir must not be null");
         }
+        if (metricsPort < 0 || metricsPort > 65535) {
+            throw new IllegalArgumentException("metricsPort must be between 0 and 65535");
+        }
     }
 
     /** Lesson 5 tests bind an ephemeral port and do not open Postgres. */
     public BrokerConfig(String host, int port, int maxFrameBytes) {
-        this(host, port, maxFrameBytes, 1, DEFAULT_ZONE, host, port == 0 ? 0 : port, Path.of("data"));
+        this(host, port, maxFrameBytes, 1, DEFAULT_ZONE, host, port == 0 ? 0 : port, Path.of("data"), 0);
+    }
+
+    /** Tests leave metrics on an ephemeral port so parallel ITs do not collide on 9094. */
+    public BrokerConfig(
+        String host,
+        int port,
+        int maxFrameBytes,
+        int brokerId,
+        String zone,
+        String advertisedHost,
+        int advertisedPort,
+        Path dataDir
+    ) {
+        this(host, port, maxFrameBytes, brokerId, zone, advertisedHost, advertisedPort, dataDir, 0);
     }
 
     public static BrokerConfig fromEnvironment(Map<String, String> env) {
@@ -62,7 +80,9 @@ public record BrokerConfig(
         String advertisedHost = valueOr(env, "LAKEWIRE_ADVERTISED_HOST", DEFAULT_ADVERTISED_HOST);
         int advertisedPort = parseInt(env, "LAKEWIRE_ADVERTISED_PORT", port);
         Path dataDir = Path.of(valueOr(env, "LAKEWIRE_DATA_DIR", "data"));
-        return new BrokerConfig(host, port, maxFrameBytes, brokerId, zone, advertisedHost, advertisedPort, dataDir);
+        int metricsPort = parseInt(env, "LAKEWIRE_METRICS_PORT", 9094);
+        return new BrokerConfig(
+            host, port, maxFrameBytes, brokerId, zone, advertisedHost, advertisedPort, dataDir, metricsPort);
     }
 
     private static String valueOr(Map<String, String> env, String variable, String defaultValue) {

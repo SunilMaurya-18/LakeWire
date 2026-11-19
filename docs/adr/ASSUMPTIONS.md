@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9. A51–A53 were added in M10.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -54,3 +54,6 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A48 | The 50×10m soak is `LakeWireVerify --soak N --duration 10m`. Nightly CI runs one 30m job. M9 records the 3-minute smoke. Overnight ≥100 runs stay a launch gate (§12), not this milestone's local loop. | A 50×10m loop is ~8 hours; the prompt also requires a 3-minute PR smoke. |
 | A49 | Retention-storm writes `retention.ms` through `sl_set_topic_retention`. AlterConfigs is not a v0.1 API. | SupportedApi has no IncrementalAlterConfigs. |
 | A50 | Cluster SlowS3 is Toxiproxy latency on the broker↔S3 proxy. `FaultInjectingObjectStore` remains the in-process 5xx/slow/404 wrapper. | Brokers in `LakeWireCluster` do not share the test JVM's ObjectStore. |
+| A51 | Classic storage in `lakewire-cost` is 3 × EBS gp3 list ($0.08/GB-month). No extra headroom multiplier. | §12.1 shows storage separately and mentions headroom only as a qualitative note. |
+| A52 | `LAKEWIRE_METRICS_PORT` 0 binds an ephemeral port (tests). Production default remains 9094 (A18). | Parallel ITs would collide on a fixed 9094. |
+| A53 | First `bench/e2e` CSVs are laptop-labelled 1-broker SeaweedFS runs, not a compose 3-broker cluster. Compose scripts wait for M11. | M10 compose still has only Postgres + SeaweedFS. |

@@ -7,6 +7,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import lakewire.broker.metrics.LakeWireMetrics;
 import lakewire.storage.ObjectNotFoundException;
 import lakewire.storage.ObjectStore;
 import lakewire.storage.TransientStorageException;
@@ -19,10 +20,16 @@ public final class BlockCache {
     private final Cache<BlockKey, byte[]> cache;
     private final AtomicLong hits = new AtomicLong();
     private final AtomicLong misses = new AtomicLong();
+    private final LakeWireMetrics metrics;
 
     public BlockCache(ObjectStore store, long maxWeight) {
+        this(store, maxWeight, LakeWireMetrics.noop());
+    }
+
+    public BlockCache(ObjectStore store, long maxWeight, LakeWireMetrics metrics) {
         this.store = store;
         this.maxWeight = maxWeight;
+        this.metrics = metrics == null ? LakeWireMetrics.noop() : metrics;
         this.cache = Caffeine.newBuilder()
             .maximumWeight(maxWeight)
             .weigher((BlockKey key, byte[] value) -> value.length)
@@ -34,9 +41,11 @@ public final class BlockCache {
         byte[] cached = cache.getIfPresent(id);
         if (cached != null) {
             hits.incrementAndGet();
+            metrics.cacheHit();
             return cached.clone();
         }
         misses.incrementAndGet();
+        metrics.cacheMiss();
         byte[] loaded = await(store.getRange(key, start, length));
         if (loaded.length > 0 && loaded.length <= maxWeight) {
             cache.put(id, loaded);

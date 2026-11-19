@@ -1,0 +1,112 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Commit latency P50 / P99",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(lakewire_commit_latency_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(lakewire_commit_latency_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "title": "Produce / fetch latency P99",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(lakewire_produce_latency_seconds_bucket[5m])))",
+          "legendFormat": "produce p99"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(lakewire_fetch_latency_seconds_bucket[5m])))",
+          "legendFormat": "fetch p99"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "title": "S3 PUT / GET",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(lakewire_s3_put_total[5m]))",
+          "legendFormat": "put {{outcome}}"
+        },
+        {
+          "expr": "sum by (outcome) (rate(lakewire_s3_get_total[5m]))",
+          "legendFormat": "get {{outcome}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "title": "Cache hit ratio",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(lakewire_cache_hits_total[5m])) / (sum(rate(lakewire_cache_hits_total[5m])) + sum(rate(lakewire_cache_misses_total[5m])))",
+          "legendFormat": "hit ratio"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "title": "Object and buffer bytes",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "lakewire_object_bytes", "legendFormat": "last object" },
+        { "expr": "lakewire_buffer_bytes", "legendFormat": "buffer" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "title": "Audit violations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (invariant) (lakewire_audit_violations_total)",
+          "legendFormat": "{{invariant}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["lakewire"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "browser",
+  "title": "LakeWire",
+  "uid": "lakewire-v01",
+  "version": 1
+}

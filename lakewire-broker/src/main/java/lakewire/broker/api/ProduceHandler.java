@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import lakewire.broker.metrics.LakeWireMetrics;
 import lakewire.broker.write.Append;
 import lakewire.broker.write.ProduceAck;
 import lakewire.broker.write.ProduceSink;
@@ -39,6 +40,28 @@ public final class ProduceHandler {
     }
 
     public static Optional<ByteBuffer> handle(KafkaRequest request, ClusterView topics, ProduceSink pipeline) {
+        return handle(request, topics, pipeline, LakeWireMetrics.noop());
+    }
+
+    public static Optional<ByteBuffer> handle(
+        KafkaRequest request,
+        ClusterView topics,
+        ProduceSink pipeline,
+        LakeWireMetrics metrics
+    ) {
+        long started = System.nanoTime();
+        try {
+            return handleInner(request, topics, pipeline);
+        } finally {
+            metrics.produceNanos(System.nanoTime() - started);
+        }
+    }
+
+    private static Optional<ByteBuffer> handleInner(
+        KafkaRequest request,
+        ClusterView topics,
+        ProduceSink pipeline
+    ) {
         ProduceRequestData data = ((ProduceRequest) request.body()).data();
         short acks = data.acks();
         if (acks != 0 && acks != 1 && acks != -1) {
