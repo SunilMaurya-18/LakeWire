@@ -6,8 +6,8 @@ import lakewire.coordinator.HwListener;
 import lakewire.coordinator.HwUpdate;
 
 /**
- * Cached high watermarks. A fetch at or above the cached watermark re-reads Postgres
- * before it chooses between waiting and {@code OFFSET_OUT_OF_RANGE}.
+ * Cached high watermarks for long-poll wakeups. Fetch reads the watermark from
+ * Postgres so a missed {@code sl_hw} notify cannot hide committed records.
  */
 public final class HwCache {
 

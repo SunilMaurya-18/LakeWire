@@ -47,6 +47,15 @@ class FetchHandlerTest {
     }
 
     @Test
+    void aFetchBelowAStaleCachedWatermarkStillRereadsPostgres() {
+        Fixture fixture = fixture(new Watermark(1, 0), new Watermark(2, 0), chunk(one("a"), one("b")));
+        PartitionData belowCache = fetch(fixture, 0, 1_000_000);
+        assertThat(belowCache.errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(belowCache.highWatermark()).isEqualTo(2);
+        assertThat(batches(belowCache)).isEqualTo(2);
+    }
+
+    @Test
     void anOffsetAboveTheWatermarkIsOutOfRangeAndTheWatermarkItselfIsEmpty() {
         Fixture fixture = fixture(new Watermark(2, 0), new Watermark(2, 0), chunk(one("a"), one("b")));
         PartitionData empty = fetch(fixture, 2, 1_000_000);

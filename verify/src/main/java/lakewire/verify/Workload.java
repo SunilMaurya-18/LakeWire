@@ -8,6 +8,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,37 +70,70 @@ public final class Workload implements AutoCloseable {
         return reads.stream().map(HistoryEvent::toAckLog).toList();
     }
 
-    public List<AckLog> finalRead() {
-        Map<String, Object> config = consumerConfig();
+    /** Reads until each partition has records through {@code highWatermarks.get(p) - 1}. */
+    public List<AckLog> finalRead(Map<Integer, Long> highWatermarks) {
         List<AckLog> found = new ArrayList<>();
-        try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(config)) {
-            List<TopicPartition> parts = partitions();
-            consumer.assign(parts);
-            Map<TopicPartition, Long> end = consumer.endOffsets(parts);
-            consumer.seekToBeginning(parts);
-            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        Map<Integer, Long> next = new HashMap<>();
+        for (int part = 0; part < PARTITIONS; part++) {
+            next.put(part, 0L);
+        }
+        List<TopicPartition> parts = partitions();
+        long deadline = System.nanoTime() + Duration.ofSeconds(90).toNanos();
+        int empty = 0;
+        KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(consumerConfig());
+        try {
+            assign(consumer, parts, next);
             while (System.nanoTime() < deadline) {
-                boolean caughtUp = true;
-                for (TopicPartition part : parts) {
-                    if (consumer.position(part) < end.getOrDefault(part, 0L)) {
-                        caughtUp = false;
-                        break;
-                    }
-                }
-                if (caughtUp) {
+                if (caughtUp(next, highWatermarks)) {
                     break;
                 }
                 try {
-                    for (ConsumerRecord<String, byte[]> record : consumer.poll(Duration.ofMillis(500))) {
-                        found.add(decode(record).toAckLog());
+                    var batch = consumer.poll(Duration.ofMillis(500));
+                    if (batch.isEmpty()) {
+                        empty++;
+                        if (empty % 5 == 0) {
+                            consumer.close();
+                            consumer = new KafkaConsumer<>(consumerConfig());
+                            assign(consumer, parts, next);
+                        }
+                        continue;
                     }
-                } catch (org.apache.kafka.common.errors.OffsetOutOfRangeException ignored) {
-                    consumer.seekToBeginning(parts);
-                    end = consumer.endOffsets(parts);
+                    empty = 0;
+                    for (ConsumerRecord<String, byte[]> record : batch) {
+                        found.add(decode(record).toAckLog());
+                        next.merge(record.partition(), record.offset() + 1, Math::max);
+                    }
+                } catch (RuntimeException ignored) {
+                    consumer.close();
+                    consumer = new KafkaConsumer<>(consumerConfig());
+                    assign(consumer, parts, next);
                 }
             }
+        } finally {
+            consumer.close();
         }
         return found;
+    }
+
+    private static void assign(
+        KafkaConsumer<String, byte[]> consumer,
+        List<TopicPartition> parts,
+        Map<Integer, Long> next
+    ) {
+        consumer.assign(parts);
+        for (TopicPartition part : parts) {
+            consumer.seek(part, next.getOrDefault(part.partition(), 0L));
+        }
+    }
+
+    private static boolean caughtUp(Map<Integer, Long> next, Map<Integer, Long> highWatermarks) {
+        for (int part = 0; part < PARTITIONS; part++) {
+            long hw = highWatermarks.getOrDefault(part, 0L);
+            if (next.getOrDefault(part, 0L) < hw) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void produce(int producer) {
@@ -171,7 +205,8 @@ public final class Workload implements AutoCloseable {
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        config.put(ConsumerConfig.CLIENT_ID_CONFIG, "verify-c,az=b");
+        config.put(ConsumerConfig.CLIENT_ID_CONFIG, "verify-c");
+        config.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, 1_000);
         config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 15_000);
         config.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 20_000);
         config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_uncommitted");

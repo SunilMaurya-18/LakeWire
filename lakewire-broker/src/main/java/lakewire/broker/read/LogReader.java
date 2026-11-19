@@ -44,8 +44,7 @@ public final class LogReader {
         if (stored == null || partition < 0 || partition >= stored.partitions()) {
             return PartitionRead.unknown();
         }
-        Watermark cached = watermarks.get(stored.id(), partition);
-        Watermark mark = offset >= cached.highWatermark() ? watermarks.refresh(stored.id(), partition) : cached;
+        Watermark mark = watermarks.refresh(stored.id(), partition);
         if (offset < mark.logStartOffset() || offset > mark.highWatermark()) {
             return PartitionRead.outOfRange(mark);
         }

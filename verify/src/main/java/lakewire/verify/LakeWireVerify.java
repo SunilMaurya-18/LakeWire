@@ -24,6 +24,7 @@ import lakewire.verify.checker.I4PhantomChecker;
 import lakewire.verify.checker.I5NoDuplicateChecker;
 import lakewire.verify.checker.I7NoDanglingRefChecker;
 import lakewire.verify.checker.I8NoLeakChecker;
+import lakewire.verify.checker.StoredLog;
 import lakewire.verify.nemesis.ClusterFaults;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -98,9 +99,14 @@ public final class LakeWireVerify {
             List<String> violations = new ArrayList<>();
             List<AckLog> acked = workload.acked();
             List<AckLog> liveReads = workload.read();
-            List<AckLog> finalLog = workload.finalRead();
-            log.info("acks={} liveReads={} final={} hw={}",
-                acked.size(), liveReads.size(), finalLog.size(), highWatermarks(cluster));
+            Map<Integer, Long> hw = highWatermarks(cluster);
+            List<AckLog> finalLog;
+            try (S3ObjectStore store = openStore(cluster)) {
+                finalLog = StoredLog.load(
+                    store, cluster.jdbcUrl(), cluster.user(), cluster.password(), Workload.TOPIC);
+            }
+            log.info("acks={} liveReads={} stored={} hw={}",
+                acked.size(), liveReads.size(), finalLog.size(), hw);
             try {
                 I1AckedReadableChecker.assertAllAckedPresent(acked, finalLog);
             } catch (AssertionError error) {
@@ -120,7 +126,7 @@ public final class LakeWireVerify {
                     violations.add("I3 " + error.getMessage());
                 }
                 try {
-                    I4PhantomChecker.assertStable(liveReads, finalLog, highWatermarks(cluster));
+                    I4PhantomChecker.assertStable(liveReads, finalLog, hw);
                 } catch (Exception | AssertionError error) {
                     violations.add("I4 " + error.getMessage());
                 }
