@@ -237,10 +237,12 @@ AS $$
 DECLARE
     v_updated int;
 BEGIN
+    -- An expired lease is already fenced. Renewing it would let a paused broker commit after unpause.
     UPDATE brokers
     SET lease_expires_at = now() + (p_lease_ms * interval '1 millisecond')
     WHERE id = p_id
-      AND epoch = p_epoch;
+      AND epoch = p_epoch
+      AND lease_expires_at > now();
     GET DIAGNOSTICS v_updated = ROW_COUNT;
     RETURN v_updated = 1;
 END;

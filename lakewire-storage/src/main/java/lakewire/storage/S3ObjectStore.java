@@ -210,14 +210,15 @@ public final class S3ObjectStore implements ObjectStore {
         byte[] body = new byte[] {1, 2, 3, 4};
         long crc = Crc32c.of(body);
         try {
-            putRaw(key, body, crc, true, 1).join();
+            putProbe(key, body, crc);
         } catch (CompletionException failure) {
             Throwable cause = unwrap(failure);
             if (rejected(cause)) {
                 log.info("s3 conditional put probe: store rejected If-None-Match");
                 return false;
             }
-            throw new TransientStorageException("s3 conditional put probe failed", cause);
+            log.warn("s3 conditional put probe failed; treating If-None-Match as unsupported: {}", cause.toString());
+            return false;
         }
         boolean supported;
         try {
@@ -230,7 +231,8 @@ public final class S3ObjectStore implements ObjectStore {
             } else if (rejected(cause)) {
                 supported = false;
             } else {
-                throw new TransientStorageException("s3 conditional put probe failed", cause);
+                log.warn("s3 conditional put probe failed; treating If-None-Match as unsupported: {}", cause.toString());
+                return false;
             }
         }
         delete(key).exceptionally(error -> {
@@ -239,6 +241,32 @@ public final class S3ObjectStore implements ObjectStore {
         }).join();
         log.info("s3 conditional put probe: supported={}", supported);
         return supported;
+    }
+
+    private void putProbe(String key, byte[] body, long crc) {
+        CompletionException last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                putRaw(key, body, crc, true, 1).join();
+                return;
+            } catch (CompletionException failure) {
+                last = failure;
+                Throwable cause = unwrap(failure);
+                if (rejected(cause) || cause instanceof ObjectAlreadyExistsException) {
+                    throw failure;
+                }
+                if (attempt == MAX_ATTEMPTS) {
+                    throw failure;
+                }
+                try {
+                    Thread.sleep(200L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw failure;
+                }
+            }
+        }
+        throw last;
     }
 
     private static boolean rejected(Throwable cause) {

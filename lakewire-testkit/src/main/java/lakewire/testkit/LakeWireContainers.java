@@ -7,6 +7,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.toxiproxy.ToxiproxyContainer;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 /**
  * Factories for the pinned dev images. Callers start and stop the containers.
@@ -35,7 +36,8 @@ public final class LakeWireContainers {
 
     public static GenericContainer<?> seaweedFs() {
         return new GenericContainer<>(DockerImageName.parse(SEAWEEDFS_IMAGE))
-            .withCommand("server", "-s3", "-dir=/data")
+            .withCopyToContainer(MountableFile.forClasspathResource("seaweed-s3.json"), "/etc/seaweed-s3.json")
+            .withCommand("server", "-s3", "-s3.config=/etc/seaweed-s3.json", "-dir=/data")
             .withExposedPorts(SEAWEEDFS_S3_PORT)
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(2)));
     }

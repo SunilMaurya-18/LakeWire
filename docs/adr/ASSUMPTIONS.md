@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -42,3 +42,7 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A36 | Produce with a non-null `transactionalId`, and a transactional or control batch, is rejected. The id is `INVALID_REQUEST`. The batch is `INVALID_RECORD`. | Transactions are a non-goal (§2.3). A15 covers InitProducerId only. |
 | A37 | ListOffsets accepts `-2` (log start), `-1` (high watermark) and timestamps `>= 0`. Any other timestamp is `INVALID_REQUEST`. Fetch isolation level is ignored; both levels read the high watermark, and `lastStableOffset` is that watermark. | There are no transactions in v0.1. The prompt names the three lookup forms and not the other negative sentinels. |
 | A38 | A produce epoch other than `producer_ids.producer_epoch` is `INVALID_PRODUCER_EPOCH`. InitProducerId when Postgres is unreachable is `COORDINATOR_NOT_AVAILABLE`. | The prompt names the less-than epoch case. A higher epoch was not issued by InitProducerId. Produce stays on `REQUEST_TIMED_OUT` when the coordinator is down. InitProducerId uses the retriable coordinator code the prompt names. |
+| A39 | `sl_heartbeat` extends the lease only when the epoch matches and `lease_expires_at > now()`. An expired lease returns false; the broker re-registers. | A paused broker must not refresh its lease on unpause and then commit the upload it started under the old epoch. |
+| A40 | The broker image runs `bin/lakewire`. `LAKEWIRE_MAIN` defaults to `lakewire.broker.LakeWireBroker`. The classpath is the cli jar plus runtime jars copied by maven-dependency-plugin 3.11.0 (Apache-2.0). | M11 replaces the entrypoint with the shaded CLI. Copying jars keeps Flyway and AWS CRT service files intact until then. |
+| A41 | `LakeWireCluster` builds that Dockerfile with `docker build`. Testcontainers `ImageFromDockerfile` is not used. | Its context upload is a 1 KiB pipe. On Windows the pipe fills and the client blocks after the daemon has already produced the image. |
+| A42 | A failed S3 conditional-PUT probe logs a warning and falls back to HEAD-before-PUT instead of aborting broker start. Cluster tests talk to SeaweedFS directly; only the pause test routes PUTs through Toxiproxy. | SeaweedFS and Toxiproxy can close the first probe sockets before the S3 API is ready. Startup should not depend on that race. |

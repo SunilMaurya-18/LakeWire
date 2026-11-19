@@ -46,6 +46,7 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
     private final GroupCommitter commits;
     private final LongSupplier epoch;
     private final AtomicBoolean accepting;
+    private final Runnable onFence;
     private final String brokerId;
     private final Semaphore uploads;
     private final LinkedBlockingQueue<Sealed> commitQueue = new LinkedBlockingQueue<>();
@@ -61,7 +62,8 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
         Coordinator coordinator,
         LongSupplier epoch,
         AtomicBoolean accepting,
-        int brokerId
+        int brokerId,
+        Runnable onFence
     ) {
         this.settings = settings;
         this.store = store;
@@ -69,6 +71,7 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
         this.commits = new GroupCommitter(coordinator);
         this.epoch = epoch;
         this.accepting = accepting;
+        this.onFence = onFence == null ? () -> { } : onFence;
         this.brokerId = Integer.toString(brokerId);
         this.uploads = new Semaphore(settings.uploadConcurrency());
         this.buffer = new WriteBuffer(
@@ -236,6 +239,10 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
                 }
                 List<CommitResult> results = commitWithReplay(request);
                 sealed.succeed(results);
+                if (fenced(results)) {
+                    accepting.set(false);
+                    onFence.run();
+                }
             } catch (CompletionException | CoordinatorException failure) {
                 log.warn("commit failed: {}", failure.toString());
                 Errors error = storage(failure)
@@ -259,6 +266,19 @@ public final class WritePipeline implements ProduceSink, AutoCloseable {
             }
         }
         throw last;
+    }
+
+    /** Epoch or lease rejection returns NOT_LEADER on every entry and writes nothing. */
+    static boolean fenced(List<CommitResult> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (CommitResult result : results) {
+            if (result.errorCode() != Errors.NOT_LEADER_OR_FOLLOWER.code()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean storage(Throwable failure) {

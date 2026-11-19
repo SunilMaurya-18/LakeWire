@@ -37,36 +37,33 @@ public final class RequestRouter implements RequestProcessor {
     );
 
     private final ClusterView topics;
-    private final int localNodeId;
     private final ProduceSink writes;
     private final LogReader reader;
     private final Coordinator producers;
 
     public RequestRouter() {
-        this(null, 1, null, null);
+        this(null, null, null, null);
     }
 
-    public RequestRouter(ClusterView topics, int localNodeId) {
-        this(topics, localNodeId, null, null);
+    public RequestRouter(ClusterView topics) {
+        this(topics, null, null, null);
     }
 
-    public RequestRouter(ClusterView topics, int localNodeId, ProduceSink writes) {
-        this(topics, localNodeId, writes, null);
+    public RequestRouter(ClusterView topics, ProduceSink writes) {
+        this(topics, writes, null, null);
     }
 
-    public RequestRouter(ClusterView topics, int localNodeId, ProduceSink writes, LogReader reader) {
-        this(topics, localNodeId, writes, reader, null);
+    public RequestRouter(ClusterView topics, ProduceSink writes, LogReader reader) {
+        this(topics, writes, reader, null);
     }
 
     public RequestRouter(
         ClusterView topics,
-        int localNodeId,
         ProduceSink writes,
         LogReader reader,
         Coordinator producers
     ) {
         this.topics = topics;
-        this.localNodeId = localNodeId;
         this.writes = writes;
         this.reader = reader;
         this.producers = producers;
@@ -87,7 +84,7 @@ public final class RequestRouter implements RequestProcessor {
 
         return switch (header.apiKey()) {
             case API_VERSIONS -> Optional.of(ApiVersionsHandler.handle(request));
-            case METADATA -> Optional.of(MetadataHandler.handle(request, topics, localNodeId));
+            case METADATA -> Optional.of(MetadataHandler.handle(request, topics));
             case PRODUCE -> ProduceHandler.handle(request, topics, writes);
             case FETCH -> Optional.of(FetchHandler.handle(request, reader));
             case LIST_OFFSETS -> Optional.of(ListOffsetsHandler.handle(request, reader));

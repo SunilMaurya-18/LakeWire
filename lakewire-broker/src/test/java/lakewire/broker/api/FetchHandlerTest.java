@@ -92,7 +92,7 @@ class FetchHandlerTest {
                     .setPartitionMaxBytes(maxBytes)))));
         RequestHeader header = new RequestHeader(ApiKeys.FETCH, (short) 4, "unit", 1);
         FetchRequest request = new FetchRequest(data, header.apiVersion());
-        ByteBuffer raw = new RequestRouter(fixture.cluster(), 1, null, fixture.reader())
+        ByteBuffer raw = new RequestRouter(fixture.cluster(), null, fixture.reader())
             .process(request.serializeWithHeader(header))
             .orElseThrow();
         FetchResponse parsed = (FetchResponse) AbstractResponse.parseResponse(raw, header);

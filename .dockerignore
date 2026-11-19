@@ -1,0 +1,7 @@
+.git
+.idea
+.cursor
+**/target
+web
+node_modules
+Agent.mdc

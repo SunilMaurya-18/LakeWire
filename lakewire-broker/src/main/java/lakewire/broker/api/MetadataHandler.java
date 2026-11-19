@@ -22,7 +22,7 @@ import org.apache.kafka.common.requests.MetadataResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Metadata. Leadership is this broker for every partition until zone routing in M7. */
+/** Metadata. The leader is a zone hint. Every broker still accepts every partition. */
 public final class MetadataHandler {
 
     private static final Logger log = LoggerFactory.getLogger(MetadataHandler.class);
@@ -30,12 +30,13 @@ public final class MetadataHandler {
     private MetadataHandler() {
     }
 
-    public static ByteBuffer handle(KafkaRequest request, ClusterView topics, int localNodeId) {
+    public static ByteBuffer handle(KafkaRequest request, ClusterView topics) {
         if (topics == null) {
             return RequestRouter.coordinatorUnavailable(request);
         }
         try {
             MetadataRequestData data = ((MetadataRequest) request.body()).data();
+            String zone = ZoneRouting.clientZone(request.header().clientId());
             MetadataResponseData response = new MetadataResponseData();
             List<LiveBroker> brokers = topics.liveBrokers();
             MetadataResponseBrokerCollection nodes = new MetadataResponseBrokerCollection();
@@ -58,7 +59,7 @@ public final class MetadataHandler {
             List<StoredTopic> stored = topics.topics();
             if (data.topics() == null) {
                 for (StoredTopic topic : stored) {
-                    topicResponses.add(describe(topic, localNodeId));
+                    topicResponses.add(describe(topic, brokers, zone));
                 }
             } else {
                 for (MetadataRequestData.MetadataRequestTopic asked : data.topics()) {
@@ -69,7 +70,7 @@ public final class MetadataHandler {
                             .setErrorCode(Errors.UNKNOWN_TOPIC_OR_PARTITION.code())
                             .setIsInternal(false));
                     } else {
-                        topicResponses.add(describe(match, localNodeId));
+                        topicResponses.add(describe(match, brokers, zone));
                     }
                 }
             }
@@ -85,14 +86,15 @@ public final class MetadataHandler {
         }
     }
 
-    private static MetadataResponseTopic describe(StoredTopic topic, int localNodeId) {
+    private static MetadataResponseTopic describe(StoredTopic topic, List<LiveBroker> brokers, String zone) {
         List<MetadataResponsePartition> partitions = new ArrayList<>(topic.partitions());
-        List<Integer> replicas = List.of(localNodeId);
         for (int part = 0; part < topic.partitions(); part++) {
+            int leader = ZoneRouting.leader(brokers, topic.name(), part, zone);
+            List<Integer> replicas = leader < 0 ? List.of() : List.of(leader);
             partitions.add(new MetadataResponsePartition()
                 .setPartitionIndex(part)
-                .setErrorCode(Errors.NONE.code())
-                .setLeaderId(localNodeId)
+                .setErrorCode(leader < 0 ? Errors.LEADER_NOT_AVAILABLE.code() : Errors.NONE.code())
+                .setLeaderId(leader)
                 .setLeaderEpoch(-1)
                 .setReplicaNodes(replicas)
                 .setIsrNodes(replicas)

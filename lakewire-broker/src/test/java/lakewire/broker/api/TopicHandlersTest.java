@@ -38,7 +38,7 @@ class TopicHandlersTest {
     void metadataListsLiveBrokersAndThisBrokerAsLeader() {
         FakeCluster cluster = new FakeCluster();
         cluster.topics.add(new StoredTopic(4, "orders", 2, TopicDirectory.DEFAULT_RETENTION_MS));
-        MetadataResponse response = metadata(cluster, null);
+        MetadataResponse response = metadata(cluster, null, "unit");
         assertThat(response.data().clusterId()).isEqualTo("abc");
         assertThat(response.data().controllerId()).isEqualTo(1);
         assertThat(response.data().brokers()).hasSize(2);
@@ -46,15 +46,27 @@ class TopicHandlersTest {
         var topic = response.data().topics().find("orders");
         assertThat(topic.errorCode()).isEqualTo(Errors.NONE.code());
         assertThat(topic.partitions()).hasSize(2);
-        assertThat(topic.partitions().get(0).leaderId()).isEqualTo(7);
+        int leader = ZoneRouting.leader(cluster.liveBrokers(), "orders", 0, null);
+        assertThat(topic.partitions().get(0).leaderId()).isEqualTo(leader);
         assertThat(topic.partitions().get(0).leaderEpoch()).isEqualTo(-1);
-        assertThat(topic.partitions().get(0).replicaNodes()).containsExactly(7);
+        assertThat(topic.partitions().get(0).replicaNodes()).containsExactly(leader);
+        assertThat(topic.partitions().get(0).isrNodes()).containsExactly(leader);
+    }
+
+    @Test
+    void metadataLeaderFollowsTheClientZone() {
+        FakeCluster cluster = new FakeCluster();
+        cluster.topics.add(new StoredTopic(4, "orders", 1, TopicDirectory.DEFAULT_RETENTION_MS));
+        MetadataResponse inB = metadata(cluster, "orders", "client,az=b");
+        assertThat(inB.data().topics().find("orders").partitions().get(0).leaderId()).isEqualTo(3);
+        MetadataResponse inA = metadata(cluster, "orders", "client,az=a");
+        assertThat(inA.data().topics().find("orders").partitions().get(0).leaderId()).isEqualTo(1);
     }
 
     @Test
     void unknownTopicIsReportedAndAutoCreateStaysOff() {
         FakeCluster cluster = new FakeCluster();
-        MetadataResponse response = metadata(cluster, "missing");
+        MetadataResponse response = metadata(cluster, "missing", "unit");
         assertThat(response.data().topics().find("missing").errorCode())
             .isEqualTo(Errors.UNKNOWN_TOPIC_OR_PARTITION.code());
         assertThat(cluster.topics).isEmpty();
@@ -115,7 +127,7 @@ class TopicHandlersTest {
     @Test
     void everySupportedApiHasARouterCase() {
         FakeCluster cluster = new FakeCluster();
-        RequestRouter router = new RequestRouter(cluster, 7);
+        RequestRouter router = new RequestRouter(cluster);
         for (SupportedApi api : SupportedApi.values()) {
             assertThat(RequestRouter.HANDLED).contains(api.apiKey());
             RequestHeader header = new RequestHeader(api.apiKey(), api.minVersion(), "unit", 3);
@@ -129,13 +141,13 @@ class TopicHandlersTest {
         }
     }
 
-    private static MetadataResponse metadata(FakeCluster cluster, String topic) {
+    private static MetadataResponse metadata(FakeCluster cluster, String topic, String clientId) {
         MetadataRequestData data = new MetadataRequestData()
             .setAllowAutoTopicCreation(true)
             .setTopics(topic == null ? null : List.of(new MetadataRequestTopic().setName(topic)));
-        RequestHeader header = new RequestHeader(ApiKeys.METADATA, (short) 9, "unit", 1);
+        RequestHeader header = new RequestHeader(ApiKeys.METADATA, (short) 9, clientId, 1);
         MetadataRequest request = new MetadataRequest(data, header.apiVersion());
-        ByteBuffer response = new RequestRouter(cluster, 7).process(request.serializeWithHeader(header)).orElseThrow();
+        ByteBuffer response = new RequestRouter(cluster).process(request.serializeWithHeader(header)).orElseThrow();
         return (MetadataResponse) AbstractResponse.parseResponse(response, header);
     }
 
@@ -173,7 +185,7 @@ class TopicHandlersTest {
             .setTopics(topics);
         RequestHeader header = new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 6, "unit", 2);
         CreateTopicsRequest request = new CreateTopicsRequest.Builder(data).build(header.apiVersion());
-        ByteBuffer response = new RequestRouter(cluster, 7).process(request.serializeWithHeader(header)).orElseThrow();
+        ByteBuffer response = new RequestRouter(cluster).process(request.serializeWithHeader(header)).orElseThrow();
         return (CreateTopicsResponse) AbstractResponse.parseResponse(response, header);
     }
 
@@ -184,7 +196,7 @@ class TopicHandlersTest {
         DeleteTopicsRequestData data = new DeleteTopicsRequestData().setTopicNames(List.of(name));
         RequestHeader header = new RequestHeader(ApiKeys.DELETE_TOPICS, (short) 5, "unit", 4);
         DeleteTopicsRequest request = new DeleteTopicsRequest.Builder(data).build(header.apiVersion());
-        ByteBuffer response = new RequestRouter(cluster, 7).process(request.serializeWithHeader(header)).orElseThrow();
+        ByteBuffer response = new RequestRouter(cluster).process(request.serializeWithHeader(header)).orElseThrow();
         DeleteTopicsResponse parsed = (DeleteTopicsResponse) AbstractResponse.parseResponse(response, header);
         return parsed.data().responses().find(name);
     }

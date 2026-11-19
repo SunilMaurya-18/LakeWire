@@ -127,7 +127,7 @@ class ProduceHandlerTest {
         ProduceRequestData data = request("orders", 0, oneRecord(), (short) 0);
         RequestHeader header = new RequestHeader(ApiKeys.PRODUCE, (short) 9, "unit", 1);
         ProduceRequest request = new ProduceRequest(data, (short) 9);
-        Optional<ByteBuffer> raw = new RequestRouter(cluster(), 1, sink).process(request.serializeWithHeader(header));
+        Optional<ByteBuffer> raw = new RequestRouter(cluster(), sink).process(request.serializeWithHeader(header));
         assertThat(raw).isEmpty();
         assertThat(sink.appended).hasSize(1);
     }
@@ -135,7 +135,7 @@ class ProduceHandlerTest {
     private static ProduceResponseData send(ClusterView topics, ProduceSink sink, ProduceRequestData data) {
         RequestHeader header = new RequestHeader(ApiKeys.PRODUCE, (short) 9, "unit", 1);
         ProduceRequest request = new ProduceRequest(data, (short) 9);
-        ByteBuffer raw = new RequestRouter(topics, 1, sink).process(request.serializeWithHeader(header)).orElseThrow();
+        ByteBuffer raw = new RequestRouter(topics, sink).process(request.serializeWithHeader(header)).orElseThrow();
         ProduceResponse parsed = (ProduceResponse) AbstractResponse.parseResponse(raw, header);
         return parsed.data();
     }

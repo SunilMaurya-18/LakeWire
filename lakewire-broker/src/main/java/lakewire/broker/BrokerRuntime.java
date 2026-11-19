@@ -47,6 +47,8 @@ public final class BrokerRuntime implements AutoCloseable {
     private WritePipeline pipeline;
     private HwListener hwListener;
     private KafkaServer server;
+    private BrokerRegistry registry;
+    private String advertisedEndpoint;
     private Thread heartbeat;
     private volatile long epoch;
     private volatile boolean open;
@@ -97,7 +99,8 @@ public final class BrokerRuntime implements AutoCloseable {
                 coordinator,
                 () -> epoch,
                 acceptingWrites,
-                config.brokerId()
+                config.brokerId(),
+                this::recoverFromFence
             );
             pipeline.start();
             TopicDirectory directory = new TopicDirectory(coordinator);
@@ -114,16 +117,17 @@ public final class BrokerRuntime implements AutoCloseable {
             );
             server = new KafkaServer(
                 config,
-                new RequestRouter(directory, config.brokerId(), pipeline, reader, coordinator)
+                new RequestRouter(directory, pipeline, reader, coordinator)
             );
             server.start();
             int advertisedPort = config.advertisedPort() == 0 ? server.boundPort() : config.advertisedPort();
             String endpoint = config.advertisedHost() + ":" + advertisedPort;
-            BrokerRegistry registry = new BrokerRegistry(coordinator);
+            registry = new BrokerRegistry(coordinator);
+            advertisedEndpoint = endpoint;
             epoch = registry.register(Integer.toString(config.brokerId()), config.zone(), endpoint);
             acceptingWrites.set(true);
-            heartbeat = Thread.ofVirtual().name("lakewire-heartbeat").start(() -> beat(registry, endpoint));
             open = true;
+            heartbeat = Thread.ofVirtual().name("lakewire-heartbeat").start(this::beat);
             log.info("broker {} epoch {} listening on {} advertising {}",
                 config.brokerId(), epoch, server.boundPort(), endpoint);
         } catch (RuntimeException failure) {
@@ -152,7 +156,7 @@ public final class BrokerRuntime implements AutoCloseable {
         }
     }
 
-    private void beat(BrokerRegistry registry, String endpoint) {
+    private void beat() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 Thread.sleep(coordinatorConfig.heartbeatMs());
@@ -164,15 +168,23 @@ public final class BrokerRuntime implements AutoCloseable {
                 if (registry.heartbeat(Integer.toString(config.brokerId()), epoch)) {
                     continue;
                 }
-                acceptingWrites.set(false);
-                failInFlight(ErrorMapping.STALE_BROKER_EPOCH.code());
-                epoch = registry.register(Integer.toString(config.brokerId()), config.zone(), endpoint);
-                acceptingWrites.set(true);
-                log.info("broker {} re-registered at epoch {}", config.brokerId(), epoch);
+                recoverFromFence();
             } catch (CoordinatorException failure) {
                 log.warn("heartbeat failed: {}", failure.toString());
             }
         }
+    }
+
+    /** Fail buffered produces, then take a new epoch so clients can retry (A7). */
+    private synchronized void recoverFromFence() {
+        if (!open || registry == null || advertisedEndpoint == null) {
+            return;
+        }
+        acceptingWrites.set(false);
+        failInFlight(ErrorMapping.STALE_BROKER_EPOCH.code());
+        epoch = registry.register(Integer.toString(config.brokerId()), config.zone(), advertisedEndpoint);
+        acceptingWrites.set(true);
+        log.info("broker {} re-registered at epoch {}", config.brokerId(), epoch);
     }
 
     @Override
