@@ -14,8 +14,9 @@ final class ObjectStoreChecks {
         assertThatThrownBy(() -> StorageAwait.await(store.put("logs/a", body)))
             .isInstanceOf(ObjectAlreadyExistsException.class);
         assertThat(StorageAwait.await(store.getRange("logs/a", 2, 3))).containsExactly(30, 40, 50);
-        assertThat(StorageAwait.await(store.head("logs/a")))
-            .isEqualTo(new ObjectHead(body.length, Crc32c.of(body)));
+        ObjectHead head = StorageAwait.await(store.head("logs/a"));
+        assertThat(head.size()).isEqualTo(body.length);
+        assertThat(head.crc32c()).isEqualTo(Crc32c.of(body));
 
         StorageAwait.await(store.put("logs/b", new byte[] {1}));
         StorageAwait.await(store.put("other", new byte[] {2}));

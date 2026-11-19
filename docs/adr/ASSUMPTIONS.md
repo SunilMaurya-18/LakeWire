@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -46,3 +46,8 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A40 | The broker image runs `bin/lakewire`. `LAKEWIRE_MAIN` defaults to `lakewire.broker.LakeWireBroker`. The classpath is the cli jar plus runtime jars copied by maven-dependency-plugin 3.11.0 (Apache-2.0). | M11 replaces the entrypoint with the shaded CLI. Copying jars keeps Flyway and AWS CRT service files intact until then. |
 | A41 | `LakeWireCluster` builds that Dockerfile with `docker build`. Testcontainers `ImageFromDockerfile` is not used. | Its context upload is a 1 KiB pipe. On Windows the pipe fills and the client blocks after the daemon has already produced the image. |
 | A42 | A failed S3 conditional-PUT probe logs a warning and falls back to HEAD-before-PUT instead of aborting broker start. Cluster tests talk to SeaweedFS directly; only the pause test routes PUTs through Toxiproxy. | SeaweedFS and Toxiproxy can close the first probe sockets before the S3 API is ready. Startup should not depend on that race. |
+| A43 | The worker advisory lock is `pg_try_advisory_lock(87001108)`. | The prompt asks for a constant; session lock release on disconnect is the leadership signal. |
+| A44 | Audit violations increment in-process `WorkerMetrics` (`lakewire_audit_violations_total` by invariant). Prometheus export is M10. | M8 requires the metric name; M10 serves `/metrics`. |
+| A45 | I8 ages leaked keys from `ObjectHead.lastModified` against the checker clock, using orphan TTL + GC period. | Bucket listings have no Postgres row to compare to `now()`. |
+| A46 | Worker env: `LAKEWIRE_WORKERS` (default true), `LAKEWIRE_ORPHAN_TTL_MS`, `LAKEWIRE_GC_PERIOD_MS`, `LAKEWIRE_RETENTION_PERIOD_MS`, `LAKEWIRE_DELETE_SWEEP_MS`, `LAKEWIRE_REF_AUDIT_MS`, `LAKEWIRE_AUDIT_HEAD_CAP` (100), `LAKEWIRE_PRODUCER_TTL_MS`, `LAKEWIRE_PRODUCER_EXPIRY_PERIOD_MS`, `LAKEWIRE_GRACE_MS`, `LAKEWIRE_WORKER_LOCK_RETRY_MS`. Defaults from A17. | The PRD names periods, not the variables. |
+| A47 | Topic `retention.ms` of -1 skips time-based prefix deletion. | CreateTopics already accepts -1, which is Kafka infinite retention. |

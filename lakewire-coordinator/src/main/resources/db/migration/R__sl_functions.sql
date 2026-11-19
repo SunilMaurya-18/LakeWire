@@ -913,7 +913,7 @@ BEGIN
 END;
 $$;
 
--- Marks the topic deleted. Rows stay until retention cleanup (M8).
+-- Marks the topic deleted. sl_apply_retention drops segments and rows.
 CREATE OR REPLACE FUNCTION sl_delete_topic(p_name text)
 RETURNS smallint
 LANGUAGE plpgsql
@@ -933,4 +933,213 @@ BEGIN
     END IF;
     RETURN 0;
 END;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_gc_expired_intents(p_ttl_ms bigint)
+RETURNS SETOF text
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF p_ttl_ms IS NULL OR p_ttl_ms < 0 THEN
+        RAISE EXCEPTION 'sl_gc_expired_intents ttl must be >= 0';
+    END IF;
+    RETURN QUERY
+    DELETE FROM upload_intents
+    WHERE created_at < now() - (p_ttl_ms * interval '1 millisecond')
+    RETURNING object_key;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_uncommittable_keys(p_keys text[])
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT k
+    FROM unnest(coalesce(p_keys, ARRAY[]::text[])) AS k
+    WHERE NOT EXISTS (SELECT 1 FROM objects o WHERE o.key = k)
+      AND NOT EXISTS (SELECT 1 FROM upload_intents u WHERE u.object_key = k);
+$$;
+
+CREATE OR REPLACE FUNCTION sl_apply_retention(p_grace_ms bigint)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_grace interval;
+    v_default_retention bigint := 604800000;
+BEGIN
+    IF p_grace_ms IS NULL OR p_grace_ms < 0 THEN
+        RAISE EXCEPTION 'sl_apply_retention grace must be >= 0';
+    END IF;
+    v_grace := p_grace_ms * interval '1 millisecond';
+
+    CREATE TEMP TABLE IF NOT EXISTS sl_retention_drop (
+        object_id uuid NOT NULL,
+        byte_len int NOT NULL
+    ) ON COMMIT DROP;
+    TRUNCATE sl_retention_drop;
+
+    WITH cutoff AS (
+        SELECT p.topic_id,
+               p.part,
+               (extract(epoch FROM now()) * 1000)::bigint
+                 - coalesce((t.config->>'retention.ms')::bigint, v_default_retention) AS cutoff_ms
+        FROM partitions p
+        JOIN topics t ON t.id = p.topic_id
+        WHERE t.deleted_at IS NULL
+          AND coalesce((t.config->>'retention.ms')::bigint, v_default_retention) >= 0
+    ),
+    first_keep AS (
+        SELECT s.topic_id, s.part, min(s.base_offset) AS keep_base
+        FROM segments s
+        JOIN cutoff c ON c.topic_id = s.topic_id AND c.part = s.part
+        WHERE s.max_ts >= c.cutoff_ms
+        GROUP BY s.topic_id, s.part
+    ),
+    dropped AS (
+        DELETE FROM segments s
+        USING cutoff c
+        WHERE s.topic_id = c.topic_id
+          AND s.part = c.part
+          AND s.base_offset < coalesce(
+              (SELECT k.keep_base FROM first_keep k
+               WHERE k.topic_id = s.topic_id AND k.part = s.part),
+              9223372036854775807
+          )
+        RETURNING s.object_id, s.byte_len
+    )
+    INSERT INTO sl_retention_drop SELECT object_id, byte_len FROM dropped;
+
+    WITH dropped AS (
+        DELETE FROM segments s
+        USING topics t
+        WHERE s.topic_id = t.id
+          AND t.deleted_at IS NOT NULL
+        RETURNING s.object_id, s.byte_len
+    )
+    INSERT INTO sl_retention_drop SELECT object_id, byte_len FROM dropped;
+
+    UPDATE objects o
+    SET live_refs = o.live_refs - d.refs,
+        live_bytes = o.live_bytes - d.bytes
+    FROM (
+        SELECT object_id, count(*)::int AS refs, sum(byte_len)::bigint AS bytes
+        FROM sl_retention_drop
+        GROUP BY object_id
+    ) d
+    WHERE o.id = d.object_id;
+
+    UPDATE objects
+    SET live_refs = 0
+    WHERE live_refs < 0;
+
+    UPDATE objects
+    SET state = 'DELETE_PENDING',
+        delete_after = now() + v_grace
+    WHERE live_refs = 0
+      AND state = 'COMMITTED';
+
+    UPDATE partitions p
+    SET log_start_offset = coalesce(
+        (SELECT min(s.base_offset) FROM segments s WHERE s.topic_id = p.topic_id AND s.part = p.part),
+        p.next_offset
+    );
+
+    DELETE FROM producer_state ps
+    WHERE EXISTS (
+        SELECT 1 FROM topics t
+        WHERE t.id = ps.topic_id AND t.deleted_at IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM segments s WHERE s.topic_id = ps.topic_id
+    );
+
+    DELETE FROM partitions p
+    WHERE EXISTS (
+        SELECT 1 FROM topics t WHERE t.id = p.topic_id AND t.deleted_at IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM segments s WHERE s.topic_id = p.topic_id AND s.part = p.part
+    );
+
+    DELETE FROM topics t
+    WHERE t.deleted_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM partitions p WHERE p.topic_id = t.id);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_due_delete_pending()
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT key
+    FROM objects
+    WHERE state = 'DELETE_PENDING'
+      AND delete_after IS NOT NULL
+      AND delete_after < now();
+$$;
+
+CREATE OR REPLACE FUNCTION sl_forget_object(p_key text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    DELETE FROM objects
+    WHERE key = p_key
+      AND state = 'DELETE_PENDING'
+      AND live_refs <= 0;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_expire_producer_state(p_ttl_ms bigint)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_n bigint;
+BEGIN
+    IF p_ttl_ms IS NULL OR p_ttl_ms < 0 THEN
+        RAISE EXCEPTION 'sl_expire_producer_state ttl must be >= 0';
+    END IF;
+    DELETE FROM producer_state
+    WHERE updated_at < now() - (p_ttl_ms * interval '1 millisecond');
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    RETURN v_n;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_audit_refcounts()
+RETURNS TABLE (
+    object_id uuid,
+    object_key text,
+    live_refs int,
+    actual_refs int,
+    live_bytes bigint,
+    actual_bytes bigint
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT x.object_id, x.object_key, x.live_refs, x.actual_refs, x.live_bytes, x.actual_bytes
+    FROM (
+        SELECT o.id AS object_id,
+               o.key AS object_key,
+               o.live_refs,
+               (SELECT count(*)::int FROM segments s WHERE s.object_id = o.id) AS actual_refs,
+               o.live_bytes,
+               coalesce((SELECT sum(s.byte_len)::bigint FROM segments s WHERE s.object_id = o.id), 0) AS actual_bytes
+        FROM objects o
+    ) x
+    WHERE x.live_refs IS DISTINCT FROM x.actual_refs
+       OR x.live_bytes IS DISTINCT FROM x.actual_bytes;
+$$;
+
+CREATE OR REPLACE FUNCTION sl_committed_object_keys()
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT key FROM objects WHERE state = 'COMMITTED' ORDER BY created_at, key;
 $$;

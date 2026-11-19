@@ -1,6 +1,7 @@
 package lakewire.storage;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -103,7 +104,11 @@ public final class S3ObjectStore implements ObjectStore {
     public CompletableFuture<ObjectHead> head(String key) {
         ObjectKeys.require(key);
         return withRetry(() -> client.headObject(builder -> builder.bucket(config.bucket()).key(key))
-            .thenApply(response -> new ObjectHead(response.contentLength(), crcOf(response))), 1);
+            .thenApply(response -> new ObjectHead(
+                response.contentLength(),
+                crcOf(response),
+                response.lastModified() == null ? Instant.EPOCH : response.lastModified()
+            )), 1);
     }
 
     @Override

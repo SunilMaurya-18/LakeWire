@@ -119,7 +119,7 @@ public final class LocalFsObjectStore implements ObjectStore {
         Path path = existing(key);
         try {
             byte[] body = Files.readAllBytes(path);
-            return new ObjectHead(body.length, Crc32c.of(body));
+            return new ObjectHead(body.length, Crc32c.of(body), Files.getLastModifiedTime(path).toInstant());
         } catch (IOException failure) {
             throw new TransientStorageException("local head failed for " + key, failure);
         }

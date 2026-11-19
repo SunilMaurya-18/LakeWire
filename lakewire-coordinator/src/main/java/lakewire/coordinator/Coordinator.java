@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
@@ -120,6 +121,115 @@ public final class Coordinator implements AutoCloseable {
             return execute(connection, "sl_commit_object", request);
         } catch (SQLException failure) {
             throw new CoordinatorException("commit failed", failure);
+        }
+    }
+
+    public List<String> gcExpiredIntents(long ttlMs) {
+        return queryTexts("SELECT sl_gc_expired_intents(?)", ttlMs);
+    }
+
+    public List<String> uncommittableKeys(List<String> keys) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT sl_uncommittable_keys(?)")) {
+            Array array = connection.createArrayOf("text", keys.toArray(String[]::new));
+            try {
+                statement.setArray(1, array);
+                return readTexts(statement);
+            } finally {
+                array.free();
+            }
+        } catch (SQLException failure) {
+            throw new CoordinatorException("uncommittable keys failed", failure);
+        }
+    }
+
+    public void applyRetention(long graceMs) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT sl_apply_retention(?)")) {
+            statement.setLong(1, graceMs);
+            statement.executeQuery().close();
+        } catch (SQLException failure) {
+            throw new CoordinatorException("apply retention failed", failure);
+        }
+    }
+
+    public List<String> dueDeletePending() {
+        return queryTexts("SELECT sl_due_delete_pending()");
+    }
+
+    public void forgetObject(String key) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT sl_forget_object(?)")) {
+            statement.setString(1, key);
+            statement.executeQuery().close();
+        } catch (SQLException failure) {
+            throw new CoordinatorException("forget object failed", failure);
+        }
+    }
+
+    public long expireProducerState(long ttlMs) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT sl_expire_producer_state(?)")) {
+            statement.setLong(1, ttlMs);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return 0;
+                }
+                return rows.getLong(1);
+            }
+        } catch (SQLException failure) {
+            throw new CoordinatorException("expire producer state failed", failure);
+        }
+    }
+
+    public List<RefcountMismatch> auditRefcounts() {
+        String sql = """
+            SELECT object_id, object_key, live_refs, actual_refs, live_bytes, actual_bytes
+            FROM sl_audit_refcounts()
+            """;
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            List<RefcountMismatch> mismatches = new ArrayList<>();
+            while (rows.next()) {
+                mismatches.add(new RefcountMismatch(
+                    rows.getObject(1, UUID.class),
+                    rows.getString(2),
+                    rows.getInt(3),
+                    rows.getInt(4),
+                    rows.getLong(5),
+                    rows.getLong(6)
+                ));
+            }
+            return List.copyOf(mismatches);
+        } catch (SQLException failure) {
+            throw new CoordinatorException("audit refcounts failed", failure);
+        }
+    }
+
+    public List<String> committedObjectKeys() {
+        return queryTexts("SELECT sl_committed_object_keys()");
+    }
+
+    private List<String> queryTexts(String sql, long... args) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int i = 0; i < args.length; i++) {
+                statement.setLong(i + 1, args[i]);
+            }
+            return readTexts(statement);
+        } catch (SQLException failure) {
+            throw new CoordinatorException("coordinator query failed", failure);
+        }
+    }
+
+    private static List<String> readTexts(PreparedStatement statement) throws SQLException {
+        try (ResultSet rows = statement.executeQuery()) {
+            List<String> values = new ArrayList<>();
+            while (rows.next()) {
+                values.add(rows.getString(1));
+            }
+            return List.copyOf(values);
         }
     }
 

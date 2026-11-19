@@ -27,6 +27,9 @@ import lakewire.storage.LocalFsObjectStore;
 import lakewire.storage.ObjectStore;
 import lakewire.storage.S3ObjectStore;
 import lakewire.storage.S3StorageConfig;
+import lakewire.workers.WorkerConfig;
+import lakewire.workers.WorkerMetrics;
+import lakewire.workers.WorkerRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,8 +45,10 @@ public final class BrokerRuntime implements AutoCloseable {
     private final CoordinatorConfig coordinatorConfig;
     private final ObjectStore store;
     private final WriteSettings writeSettings;
+    private final WorkerConfig workerConfig;
     private final AtomicBoolean acceptingWrites = new AtomicBoolean();
     private Coordinator coordinator;
+    private WorkerRuntime workers;
     private WritePipeline pipeline;
     private HwListener hwListener;
     private KafkaServer server;
@@ -55,7 +60,7 @@ public final class BrokerRuntime implements AutoCloseable {
     private boolean storeClosed;
 
     public BrokerRuntime(BrokerConfig config, CoordinatorConfig coordinatorConfig, ObjectStore store) {
-        this(config, coordinatorConfig, store, WriteSettings.defaults());
+        this(config, coordinatorConfig, store, WriteSettings.defaults(), WorkerConfig.defaults());
     }
 
     public BrokerRuntime(
@@ -64,10 +69,21 @@ public final class BrokerRuntime implements AutoCloseable {
         ObjectStore store,
         WriteSettings writeSettings
     ) {
+        this(config, coordinatorConfig, store, writeSettings, WorkerConfig.defaults());
+    }
+
+    public BrokerRuntime(
+        BrokerConfig config,
+        CoordinatorConfig coordinatorConfig,
+        ObjectStore store,
+        WriteSettings writeSettings,
+        WorkerConfig workerConfig
+    ) {
         this.config = config;
         this.coordinatorConfig = coordinatorConfig;
         this.store = store;
         this.writeSettings = writeSettings;
+        this.workerConfig = workerConfig;
     }
 
     public static ObjectStore openStore(Map<String, String> env, BrokerConfig config) {
@@ -128,6 +144,10 @@ public final class BrokerRuntime implements AutoCloseable {
             acceptingWrites.set(true);
             open = true;
             heartbeat = Thread.ofVirtual().name("lakewire-heartbeat").start(this::beat);
+            if (workerConfig.enabled()) {
+                workers = new WorkerRuntime(workerConfig, coordinator, store, new WorkerMetrics());
+                workers.start();
+            }
             log.info("broker {} epoch {} listening on {} advertising {}",
                 config.brokerId(), epoch, server.boundPort(), endpoint);
         } catch (RuntimeException failure) {
@@ -193,6 +213,10 @@ public final class BrokerRuntime implements AutoCloseable {
     }
 
     private void cleanup() {
+        if (workers != null) {
+            workers.close();
+            workers = null;
+        }
         if (heartbeat != null) {
             heartbeat.interrupt();
             heartbeat = null;

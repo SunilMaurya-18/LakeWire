@@ -18,7 +18,7 @@ import org.apache.kafka.common.requests.DeleteTopicsResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** DeleteTopics marks {@code deleted_at}. Object deletion waits for M8. */
+/** DeleteTopics marks {@code deleted_at}. Workers drop segments via {@code sl_apply_retention}. */
 public final class DeleteTopicsHandler {
 
     private static final Logger log = LoggerFactory.getLogger(DeleteTopicsHandler.class);
