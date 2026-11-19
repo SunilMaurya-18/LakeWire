@@ -13,9 +13,12 @@ public final class I5NoDuplicateChecker {
 
     public static void assertUnique(ObjectStore store, String jdbcUrl, String user, String password, String topic)
         throws Exception {
-        List<StoredSequences.Sequence> sequences = StoredSequences.load(store, jdbcUrl, user, password, topic);
+        assertUnique(StoredSequences.load(store, jdbcUrl, user, password, topic));
+    }
+
+    public static void assertUnique(List<StoredSequences.Sequence> sequences) {
         if (sequences.isEmpty()) {
-            throw new AssertionError("topic " + topic + " has no idempotent sequences");
+            throw new AssertionError("no idempotent sequences");
         }
         Set<StoredSequences.Sequence> seen = new HashSet<>();
         for (StoredSequences.Sequence sequence : sequences) {

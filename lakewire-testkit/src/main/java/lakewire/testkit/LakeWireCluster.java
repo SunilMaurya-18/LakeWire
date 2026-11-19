@@ -1,7 +1,9 @@
 package lakewire.testkit;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -44,6 +46,7 @@ public final class LakeWireCluster implements AutoCloseable {
     private final PostgreSQLContainer postgres;
     private final GenericContainer<?> seaweed;
     private final ToxiproxyContainer toxiproxy;
+    private final Proxy pgProxy;
     private final Proxy s3Proxy;
     private final List<GenericContainer<?>> brokers;
     private final List<Integer> hostPorts;
@@ -53,6 +56,7 @@ public final class LakeWireCluster implements AutoCloseable {
         PostgreSQLContainer postgres,
         GenericContainer<?> seaweed,
         ToxiproxyContainer toxiproxy,
+        Proxy pgProxy,
         Proxy s3Proxy,
         List<GenericContainer<?>> brokers,
         List<Integer> hostPorts
@@ -61,6 +65,7 @@ public final class LakeWireCluster implements AutoCloseable {
         this.postgres = postgres;
         this.seaweed = seaweed;
         this.toxiproxy = toxiproxy;
+        this.pgProxy = pgProxy;
         this.s3Proxy = s3Proxy;
         this.brokers = brokers;
         this.hostPorts = hostPorts;
@@ -88,7 +93,7 @@ public final class LakeWireCluster implements AutoCloseable {
             Startables.deepStart(postgres, seaweed, toxiproxy).get(START_TIMEOUT.toMinutes(), TimeUnit.MINUTES);
             createBucketInside(seaweed);
             ToxiproxyClient control = new ToxiproxyClient(toxiproxy.getHost(), toxiproxy.getControlPort());
-            control.createProxy("pg", "0.0.0.0:8666", "postgres:5432");
+            Proxy pg = control.createProxy("pg", "0.0.0.0:8666", "postgres:5432");
             Proxy s3 = control.createProxy("s3", "0.0.0.0:8667", "seaweed:" + LakeWireContainers.SEAWEEDFS_S3_PORT);
             String jdbc = "jdbc:postgresql://toxiproxy:8666/" + postgres.getDatabaseName()
                 + "?connectTimeout=30&socketTimeout=30";
@@ -102,7 +107,8 @@ public final class LakeWireCluster implements AutoCloseable {
             if (nodes.size() > 1) {
                 Startables.deepStart(nodes.subList(1, nodes.size())).get(20, TimeUnit.MINUTES);
             }
-            return new LakeWireCluster(network, postgres, seaweed, toxiproxy, s3, List.copyOf(nodes), List.copyOf(ports));
+            return new LakeWireCluster(
+                network, postgres, seaweed, toxiproxy, pg, s3, List.copyOf(nodes), List.copyOf(ports));
         } catch (Exception failure) {
             nodes.forEach(LakeWireCluster::stopQuietly);
             stopQuietly(toxiproxy);
@@ -152,8 +158,20 @@ public final class LakeWireCluster implements AutoCloseable {
         return postgres.getPassword();
     }
 
+    public Proxy pgProxy() {
+        return pgProxy;
+    }
+
     public Proxy s3Proxy() {
         return s3Proxy;
+    }
+
+    public String s3Endpoint() {
+        return "http://" + seaweed.getHost() + ":" + seaweed.getMappedPort(LakeWireContainers.SEAWEEDFS_S3_PORT);
+    }
+
+    public int brokerCount() {
+        return brokers.size();
     }
 
     public void pause(int index) {
@@ -168,7 +186,22 @@ public final class LakeWireCluster implements AutoCloseable {
 
     public void kill(int index) {
         GenericContainer<?> broker = brokers.get(index);
-        broker.getDockerClient().killContainerCmd(broker.getContainerId()).exec();
+        broker.getDockerClient().killContainerCmd(broker.getContainerId()).withSignal("KILL").exec();
+    }
+
+    public void startBroker(int index) {
+        GenericContainer<?> broker = brokers.get(index);
+        broker.getDockerClient().startContainerCmd(broker.getContainerId()).exec();
+        waitForPort(hostPorts.get(index), Duration.ofMinutes(2));
+    }
+
+    public int hostPort(int index) {
+        return hostPorts.get(index);
+    }
+
+    public void restartPostgres() {
+        postgres.getDockerClient().restartContainerCmd(postgres.getContainerId()).exec();
+        Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(2)).waitUntilReady(postgres);
     }
 
     @Override
@@ -229,6 +262,24 @@ public final class LakeWireCluster implements AutoCloseable {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         }
+    }
+
+    private static void waitForPort(int port, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress("127.0.0.1", port), 500);
+                return;
+            } catch (IOException ignored) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted waiting for broker port " + port, interrupted);
+                }
+            }
+        }
+        throw new IllegalStateException("broker port " + port + " did not accept connections");
     }
 
     /** Create the bucket from inside the SeaweedFS container so Docker port-mapping EOF is avoided. */

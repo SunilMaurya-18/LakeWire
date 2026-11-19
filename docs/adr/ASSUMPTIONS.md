@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -51,3 +51,6 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A45 | I8 ages leaked keys from `ObjectHead.lastModified` against the checker clock, using orphan TTL + GC period. | Bucket listings have no Postgres row to compare to `now()`. |
 | A46 | Worker env: `LAKEWIRE_WORKERS` (default true), `LAKEWIRE_ORPHAN_TTL_MS`, `LAKEWIRE_GC_PERIOD_MS`, `LAKEWIRE_RETENTION_PERIOD_MS`, `LAKEWIRE_DELETE_SWEEP_MS`, `LAKEWIRE_REF_AUDIT_MS`, `LAKEWIRE_AUDIT_HEAD_CAP` (100), `LAKEWIRE_PRODUCER_TTL_MS`, `LAKEWIRE_PRODUCER_EXPIRY_PERIOD_MS`, `LAKEWIRE_GRACE_MS`, `LAKEWIRE_WORKER_LOCK_RETRY_MS`. Defaults from A17. | The PRD names periods, not the variables. |
 | A47 | Topic `retention.ms` of -1 skips time-based prefix deletion. | CreateTopics already accepts -1, which is Kafka infinite retention. |
+| A48 | The 50×10m soak is `LakeWireVerify --soak N --duration 10m`. Nightly CI runs one 30m job. M9 records the 3-minute smoke. Overnight ≥100 runs stay a launch gate (§12), not this milestone's local loop. | A 50×10m loop is ~8 hours; the prompt also requires a 3-minute PR smoke. |
+| A49 | Retention-storm writes `retention.ms` through `sl_set_topic_retention`. AlterConfigs is not a v0.1 API. | SupportedApi has no IncrementalAlterConfigs. |
+| A50 | Cluster SlowS3 is Toxiproxy latency on the broker↔S3 proxy. `FaultInjectingObjectStore` remains the in-process 5xx/slow/404 wrapper. | Brokers in `LakeWireCluster` do not share the test JVM's ObjectStore. |

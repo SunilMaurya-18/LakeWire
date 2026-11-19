@@ -16,10 +16,10 @@ public final class I2ContiguityChecker {
     }
 
     public static void assertContiguous(String jdbcUrl, String user, String password, String topic) throws Exception {
-        Map<Integer, Long> highWatermarks = new LinkedHashMap<>();
+        Map<Integer, long[]> bounds = new LinkedHashMap<>();
         try (Connection connection = DriverManager.getConnection(jdbcUrl, user, password);
              PreparedStatement statement = connection.prepareStatement("""
-                 SELECT p.part, p.next_offset
+                 SELECT p.part, p.log_start_offset, p.next_offset
                  FROM partitions p
                  JOIN topics t ON t.id = p.topic_id
                  WHERE t.name = ? AND t.deleted_at IS NULL
@@ -28,14 +28,14 @@ public final class I2ContiguityChecker {
             statement.setString(1, topic);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
-                    highWatermarks.put(rows.getInt(1), rows.getLong(2));
+                    bounds.put(rows.getInt(1), new long[] {rows.getLong(2), rows.getLong(3)});
                 }
             }
         }
-        if (highWatermarks.isEmpty()) {
+        if (bounds.isEmpty()) {
             throw new AssertionError("topic " + topic + " has no partitions");
         }
-        for (Map.Entry<Integer, Long> partition : highWatermarks.entrySet()) {
+        for (Map.Entry<Integer, long[]> partition : bounds.entrySet()) {
             List<long[]> spans = new ArrayList<>();
             try (Connection connection = DriverManager.getConnection(jdbcUrl, user, password);
                  PreparedStatement statement = connection.prepareStatement("""
@@ -53,17 +53,21 @@ public final class I2ContiguityChecker {
                     }
                 }
             }
-            long cursor = 0;
-            for (long[] span : spans) {
-                if (span[0] != cursor || span[1] < span[0]) {
-                    throw new AssertionError("partition " + partition.getKey() + " breaks at " + cursor);
-                }
-                cursor = span[1] + 1;
+            assertSpans(partition.getKey(), partition.getValue()[0], partition.getValue()[1], spans);
+        }
+    }
+
+    /** Handmade spans: {@code [base, last]} inclusive, covering {@code [logStart, highWatermark)}. */
+    public static void assertSpans(int partition, long logStart, long highWatermark, List<long[]> spans) {
+        long cursor = logStart;
+        for (long[] span : spans) {
+            if (span[0] != cursor || span[1] < span[0]) {
+                throw new AssertionError("partition " + partition + " breaks at " + cursor);
             }
-            if (cursor != partition.getValue()) {
-                throw new AssertionError(
-                    "partition " + partition.getKey() + " covers " + cursor + " of " + partition.getValue());
-            }
+            cursor = span[1] + 1;
+        }
+        if (cursor != highWatermark) {
+            throw new AssertionError("partition " + partition + " covers " + cursor + " of " + highWatermark);
         }
     }
 }

@@ -18,7 +18,7 @@ import org.apache.kafka.common.record.internal.MutableRecordBatch;
 /** Idempotent record sequences in committed offset order. */
 final class StoredSequences {
 
-    record Sequence(int partition, long producerId, int sequence) {
+    public record Sequence(int partition, long producerId, int sequence) {
     }
 
     private StoredSequences() {

@@ -13,9 +13,12 @@ public final class I3SequenceOrderChecker {
 
     public static void assertMonotonic(ObjectStore store, String jdbcUrl, String user, String password, String topic)
         throws Exception {
-        List<StoredSequences.Sequence> sequences = StoredSequences.load(store, jdbcUrl, user, password, topic);
+        assertMonotonic(StoredSequences.load(store, jdbcUrl, user, password, topic));
+    }
+
+    public static void assertMonotonic(List<StoredSequences.Sequence> sequences) {
         if (sequences.isEmpty()) {
-            throw new AssertionError("topic " + topic + " has no idempotent sequences");
+            throw new AssertionError("no idempotent sequences");
         }
         Map<Key, Integer> previous = new HashMap<>();
         for (StoredSequences.Sequence sequence : sequences) {

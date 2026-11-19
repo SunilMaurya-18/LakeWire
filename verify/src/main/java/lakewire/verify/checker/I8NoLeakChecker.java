@@ -22,6 +22,13 @@ public final class I8NoLeakChecker {
     private I8NoLeakChecker() {
     }
 
+    public static void assertModel(Instant lastModified, Instant now, Duration maxAge, String key) {
+        Duration age = Duration.between(lastModified, now);
+        if (age.compareTo(maxAge) >= 0) {
+            throw new AssertionError("I8 leak: " + key + " age " + age + " >= " + maxAge);
+        }
+    }
+
     public static void assertHolds(
         ObjectStore store,
         String jdbcUrl,

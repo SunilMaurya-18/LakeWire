@@ -18,6 +18,14 @@ public final class I7NoDanglingRefChecker {
     private I7NoDanglingRefChecker() {
     }
 
+    public static void assertModel(java.util.Set<String> segmentKeys, java.util.Set<String> existingKeys) {
+        for (String key : segmentKeys) {
+            if (!existingKeys.contains(key)) {
+                throw new AssertionError("I7 dangling ref: missing object " + key);
+            }
+        }
+    }
+
     public static void assertHolds(ObjectStore store, String jdbcUrl, String user, String password)
         throws Exception {
         List<String> keys = new ArrayList<>();

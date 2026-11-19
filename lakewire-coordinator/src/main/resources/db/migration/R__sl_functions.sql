@@ -1143,3 +1143,24 @@ STABLE
 AS $$
     SELECT key FROM objects WHERE state = 'COMMITTED' ORDER BY created_at, key;
 $$;
+
+CREATE OR REPLACE FUNCTION sl_set_topic_retention(p_name text, p_retention_ms bigint)
+RETURNS smallint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_unknown smallint;
+    v_updated int;
+BEGIN
+    SELECT code INTO v_unknown FROM sl_kafka_error_codes() WHERE name = 'UNKNOWN_TOPIC_OR_PARTITION';
+    UPDATE topics
+    SET config = jsonb_set(coalesce(config, '{}'::jsonb), '{retention.ms}', to_jsonb(p_retention_ms), true)
+    WHERE name = p_name
+      AND deleted_at IS NULL;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    IF v_updated = 0 THEN
+        RETURN v_unknown;
+    END IF;
+    RETURN 0;
+END;
+$$;

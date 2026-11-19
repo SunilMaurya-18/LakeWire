@@ -14,9 +14,18 @@ public final class I1AckedReadableChecker {
         if (read.size() != acked.size()) {
             throw new AssertionError("read " + read.size() + " records, acked " + acked.size());
         }
+        assertAllAckedPresent(acked, read);
+    }
+
+    /** I1 for the fault harness: extras in the final log are allowed; every ack must be present. */
+    public static void assertAllAckedPresent(List<AckLog> acked, List<AckLog> read) {
         Map<String, AckLog> byKey = new HashMap<>();
         for (AckLog record : read) {
-            if (byKey.put(record.key(), record) != null) {
+            AckLog previous = byKey.put(record.key(), record);
+            if (previous != null
+                && (previous.partition() != record.partition()
+                    || previous.offset() != record.offset()
+                    || previous.valueHash() != record.valueHash())) {
                 throw new AssertionError("duplicate read key " + record.key());
             }
         }
