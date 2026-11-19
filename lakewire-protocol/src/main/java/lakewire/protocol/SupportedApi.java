@@ -12,10 +12,11 @@ import org.apache.kafka.common.protocol.ApiKeys;
 public enum SupportedApi {
     API_VERSIONS(ApiKeys.API_VERSIONS, (short) 0, (short) 3),
     METADATA(ApiKeys.METADATA, (short) 1, (short) 9),
-        PRODUCE(ApiKeys.PRODUCE, (short) 3, (short) 12),
-        FETCH(ApiKeys.FETCH, (short) 4, (short) 12),
-        LIST_OFFSETS(ApiKeys.LIST_OFFSETS, (short) 1, (short) 6),
-        CREATE_TOPICS(ApiKeys.CREATE_TOPICS, (short) 2, (short) 6),
+    PRODUCE(ApiKeys.PRODUCE, (short) 3, (short) 12),
+    FETCH(ApiKeys.FETCH, (short) 4, (short) 12),
+    LIST_OFFSETS(ApiKeys.LIST_OFFSETS, (short) 1, (short) 6),
+    INIT_PRODUCER_ID(ApiKeys.INIT_PRODUCER_ID, (short) 0, (short) 4),
+    CREATE_TOPICS(ApiKeys.CREATE_TOPICS, (short) 2, (short) 6),
     DELETE_TOPICS(ApiKeys.DELETE_TOPICS, (short) 1, (short) 5);
 
     private final ApiKeys apiKey;

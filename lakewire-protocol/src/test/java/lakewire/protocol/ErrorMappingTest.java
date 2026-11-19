@@ -41,4 +41,10 @@ class ErrorMappingTest {
     void storageRetriesExhaustedIsKafkaStorageError() {
         assertThat(ErrorMapping.STORAGE_RETRIES_EXHAUSTED.code()).isEqualTo(Errors.KAFKA_STORAGE_ERROR.code());
     }
+
+    @Test
+    void producerCoordinatorUnavailableIsCoordinatorNotAvailable() {
+        assertThat(ErrorMapping.PRODUCER_COORDINATOR_UNAVAILABLE.code())
+            .isEqualTo(Errors.COORDINATOR_NOT_AVAILABLE.code());
+    }
 }

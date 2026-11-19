@@ -211,6 +211,13 @@ class TopicHandlersTest {
             case LIST_OFFSETS -> org.apache.kafka.common.requests.ListOffsetsRequest.Builder
                 .forConsumer(false, org.apache.kafka.common.IsolationLevel.READ_UNCOMMITTED)
                 .build(api.minVersion());
+            case INIT_PRODUCER_ID -> new org.apache.kafka.common.requests.InitProducerIdRequest.Builder(
+                new org.apache.kafka.common.message.InitProducerIdRequestData()
+                    .setTransactionalId(null)
+                    .setTransactionTimeoutMs(60_000)
+                    .setProducerId(-1)
+                    .setProducerEpoch((short) -1)
+            ).build(api.minVersion());
             default -> throw new IllegalStateException(api.apiKey().name());
         };
     }

@@ -20,18 +20,178 @@ AS $$
     ) AS codes(name, code);
 $$;
 
--- M1 stub. M6 replaces this body. Duplicate batches later return error 0 and a non-null dup base.
+-- Idempotence. producer_id < 0 never reaches this function.
+-- p_base_offset is the offset this batch will receive; a later pass in the same
+-- transaction rewrites it if assignment differs. Duplicate hits return the stored offset.
+DROP FUNCTION IF EXISTS sl_check_sequence(bigint, smallint, bigint, int, int, int);
+
 CREATE OR REPLACE FUNCTION sl_check_sequence(
     p_producer_id bigint,
     p_producer_epoch smallint,
     p_topic_id bigint,
     p_part int,
     p_first_seq int,
-    p_last_seq int
+    p_last_seq int,
+    p_base_offset bigint
 ) RETURNS TABLE (error_code smallint, dup_base_offset bigint)
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_unknown smallint;
+    v_epoch_err smallint;
+    v_ooo smallint;
+    v_id_epoch smallint;
+    v_state_epoch smallint;
+    v_last_seq int;
+    v_recent jsonb;
+    v_expected int;
+    v_dup bigint;
+    v_entry jsonb;
 BEGIN
+    SELECT c.code INTO v_unknown FROM sl_kafka_error_codes() c WHERE c.name = 'UNKNOWN_PRODUCER_ID';
+    SELECT c.code INTO v_epoch_err FROM sl_kafka_error_codes() c WHERE c.name = 'INVALID_PRODUCER_EPOCH';
+    SELECT c.code INTO v_ooo FROM sl_kafka_error_codes() c WHERE c.name = 'OUT_OF_ORDER_SEQUENCE_NUMBER';
+    IF v_unknown IS NULL OR v_epoch_err IS NULL OR v_ooo IS NULL THEN
+        RAISE EXCEPTION 'sl_kafka_error_codes is missing a sequence code';
+    END IF;
+
+    SELECT p.producer_epoch INTO v_id_epoch
+    FROM producer_ids p
+    WHERE p.producer_id = p_producer_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        error_code := v_unknown;
+        dup_base_offset := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    -- A15/A38: only the epoch InitProducerId issued is current. A lower or higher one is fenced.
+    IF p_producer_epoch IS DISTINCT FROM v_id_epoch THEN
+        error_code := v_epoch_err;
+        dup_base_offset := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    SELECT s.producer_epoch, s.last_seq, s.recent
+    INTO v_state_epoch, v_last_seq, v_recent
+    FROM producer_state s
+    WHERE s.producer_id = p_producer_id
+      AND s.topic_id = p_topic_id
+      AND s.part = p_part
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        IF p_first_seq <> 0 THEN
+            error_code := v_unknown;
+            dup_base_offset := NULL;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+        BEGIN
+            INSERT INTO producer_state (producer_id, topic_id, part, producer_epoch, last_seq, recent)
+            VALUES (
+                p_producer_id, p_topic_id, p_part, p_producer_epoch, p_last_seq,
+                jsonb_build_array(jsonb_build_object(
+                    'first_seq', p_first_seq,
+                    'last_seq', p_last_seq,
+                    'base_offset', p_base_offset
+                ))
+            );
+            UPDATE producer_ids SET last_used = now() WHERE producer_id = p_producer_id;
+            error_code := 0;
+            dup_base_offset := NULL;
+            RETURN NEXT;
+            RETURN;
+        EXCEPTION
+            WHEN unique_violation THEN
+                SELECT s.producer_epoch, s.last_seq, s.recent
+                INTO v_state_epoch, v_last_seq, v_recent
+                FROM producer_state s
+                WHERE s.producer_id = p_producer_id
+                  AND s.topic_id = p_topic_id
+                  AND s.part = p_part
+                FOR UPDATE;
+        END;
+    END IF;
+
+    IF v_state_epoch < p_producer_epoch THEN
+        IF p_first_seq <> 0 THEN
+            error_code := v_ooo;
+            dup_base_offset := NULL;
+            RETURN NEXT;
+            RETURN;
+        END IF;
+        UPDATE producer_state
+        SET producer_epoch = p_producer_epoch,
+            last_seq = p_last_seq,
+            recent = jsonb_build_array(jsonb_build_object(
+                'first_seq', p_first_seq,
+                'last_seq', p_last_seq,
+                'base_offset', p_base_offset
+            )),
+            updated_at = now()
+        WHERE producer_id = p_producer_id
+          AND topic_id = p_topic_id
+          AND part = p_part;
+        UPDATE producer_ids SET last_used = now() WHERE producer_id = p_producer_id;
+        error_code := 0;
+        dup_base_offset := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    IF v_state_epoch > p_producer_epoch THEN
+        error_code := v_ooo;
+        dup_base_offset := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    SELECT (elem->>'base_offset')::bigint
+    INTO v_dup
+    FROM jsonb_array_elements(v_recent) AS elem
+    WHERE (elem->>'first_seq')::int = p_first_seq
+      AND (elem->>'last_seq')::int = p_last_seq
+    LIMIT 1;
+    IF FOUND THEN
+        error_code := 0;
+        dup_base_offset := v_dup;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    IF v_last_seq = 2147483647 THEN
+        v_expected := 0;
+    ELSE
+        v_expected := v_last_seq + 1;
+    END IF;
+    IF p_first_seq IS DISTINCT FROM v_expected THEN
+        error_code := v_ooo;
+        dup_base_offset := NULL;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    v_entry := jsonb_build_object(
+        'first_seq', p_first_seq,
+        'last_seq', p_last_seq,
+        'base_offset', p_base_offset
+    );
+    v_recent := v_recent || jsonb_build_array(v_entry);
+    WHILE jsonb_array_length(v_recent) > 5 LOOP
+        v_recent := v_recent - 0;
+    END LOOP;
+    UPDATE producer_state
+    SET last_seq = p_last_seq,
+        producer_epoch = p_producer_epoch,
+        recent = v_recent,
+        updated_at = now()
+    WHERE producer_id = p_producer_id
+      AND topic_id = p_topic_id
+      AND part = p_part;
+    UPDATE producer_ids SET last_used = now() WHERE producer_id = p_producer_id;
     error_code := 0;
     dup_base_offset := NULL;
     RETURN NEXT;
@@ -129,14 +289,15 @@ DECLARE
     v_object_id uuid;
     v_seq_err smallint;
     v_dup bigint;
+    v_base bigint;
     v_start bigint;
     v_lso bigint;
     v_refs int;
     v_live_bytes bigint;
     v_used text[] := ARRAY[]::text[];
-    v_base bigint;
     v_tag text;
     r record;
+    seqfix record;
     i int;
 BEGIN
     v_not_leader := (
@@ -338,16 +499,30 @@ BEGIN
 
     -- 5. Idempotence hook, in array order within each partition. producer_id < 0 skips it.
     FOR r IN
-        SELECT w.entry_idx, w.topic_id, w.part, w.producer_id, w.producer_epoch, w.first_seq, w.last_seq
+        SELECT w.entry_idx, w.topic_id, w.part, w.producer_id, w.producer_epoch,
+               w.first_seq, w.last_seq, w.n_records
         FROM sl_commit_work w
         WHERE w.accepted
           AND w.producer_id >= 0
         ORDER BY w.topic_id, w.part, w.entry_idx
     LOOP
+        SELECT p.next_offset INTO v_start
+        FROM partitions p
+        WHERE p.topic_id = r.topic_id
+          AND p.part = r.part;
+        SELECT COALESCE(sum(w.n_records), 0) INTO v_base
+        FROM sl_commit_work w
+        WHERE w.topic_id = r.topic_id
+          AND w.part = r.part
+          AND w.accepted
+          AND NOT w.is_dup
+          AND w.entry_idx < r.entry_idx;
+        v_base := COALESCE(v_start, 0) + COALESCE(v_base, 0);
+
         SELECT s.error_code, s.dup_base_offset
         INTO v_seq_err, v_dup
         FROM sl_check_sequence(
-            r.producer_id, r.producer_epoch, r.topic_id, r.part, r.first_seq, r.last_seq
+            r.producer_id, r.producer_epoch, r.topic_id, r.part, r.first_seq, r.last_seq, v_base
         ) s;
 
         IF v_seq_err <> 0 THEN
@@ -456,6 +631,33 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'sl_commit_object failed to assign offsets';
     END IF;
+
+    -- The sequence check stored a predicted base. Replace it with the assigned one.
+    FOR seqfix IN
+        SELECT w.producer_id, w.topic_id, w.part, w.first_seq, w.last_seq, w.base_off
+        FROM sl_commit_work w
+        WHERE w.accepted
+          AND NOT w.is_dup
+          AND w.producer_id >= 0
+        ORDER BY w.entry_idx
+    LOOP
+        UPDATE producer_state ps
+        SET recent = (
+            SELECT jsonb_agg(
+                CASE
+                    WHEN (elem->>'first_seq')::int = seqfix.first_seq
+                     AND (elem->>'last_seq')::int = seqfix.last_seq
+                    THEN jsonb_set(elem, '{base_offset}', to_jsonb(seqfix.base_off))
+                    ELSE elem
+                END
+                ORDER BY ord
+            )
+            FROM jsonb_array_elements(ps.recent) WITH ORDINALITY AS arr(elem, ord)
+        )
+        WHERE ps.producer_id = seqfix.producer_id
+          AND ps.topic_id = seqfix.topic_id
+          AND ps.part = seqfix.part;
+    END LOOP;
 
     SELECT count(*)::int, COALESCE(sum(w.byte_len), 0)::bigint
     INTO v_refs, v_live_bytes
@@ -631,6 +833,80 @@ BEGIN
     END;
     error_code := 0;
     topic_id := v_id;
+    RETURN NEXT;
+END;
+$$;
+
+-- Allocates or bumps a producer id. p_id < 0 allocates. A matching epoch bumps.
+-- An epoch that would exceed 32767 allocates a new id. Any other epoch is INVALID_PRODUCER_EPOCH.
+-- An unknown positive id allocates a new id (A15).
+CREATE OR REPLACE FUNCTION sl_init_producer_id(
+    p_id bigint,
+    p_epoch smallint
+) RETURNS TABLE (error_code smallint, producer_id bigint, producer_epoch smallint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_invalid smallint;
+    v_epoch smallint;
+    v_new_id bigint;
+    v_new_epoch smallint;
+BEGIN
+    SELECT c.code INTO v_invalid FROM sl_kafka_error_codes() c WHERE c.name = 'INVALID_PRODUCER_EPOCH';
+    IF v_invalid IS NULL THEN
+        RAISE EXCEPTION 'sl_kafka_error_codes is missing INVALID_PRODUCER_EPOCH';
+    END IF;
+
+    IF p_id IS NULL OR p_id < 0 THEN
+        INSERT INTO producer_ids (producer_epoch) VALUES (0)
+        RETURNING producer_ids.producer_id, producer_ids.producer_epoch INTO v_new_id, v_new_epoch;
+        error_code := 0;
+        producer_id := v_new_id;
+        producer_epoch := v_new_epoch;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    SELECT p.producer_epoch INTO v_epoch
+    FROM producer_ids p
+    WHERE p.producer_id = p_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        INSERT INTO producer_ids (producer_epoch) VALUES (0)
+        RETURNING producer_ids.producer_id, producer_ids.producer_epoch INTO v_new_id, v_new_epoch;
+        error_code := 0;
+        producer_id := v_new_id;
+        producer_epoch := v_new_epoch;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    IF v_epoch IS DISTINCT FROM p_epoch THEN
+        error_code := v_invalid;
+        producer_id := -1;
+        producer_epoch := -1;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    IF v_epoch >= 32767 THEN
+        INSERT INTO producer_ids (producer_epoch) VALUES (0)
+        RETURNING producer_ids.producer_id, producer_ids.producer_epoch INTO v_new_id, v_new_epoch;
+        error_code := 0;
+        producer_id := v_new_id;
+        producer_epoch := v_new_epoch;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    UPDATE producer_ids
+    SET producer_epoch = (producer_ids.producer_epoch + 1)::smallint,
+        last_used = now()
+    WHERE producer_ids.producer_id = p_id
+    RETURNING producer_ids.producer_id, producer_ids.producer_epoch INTO v_new_id, v_new_epoch;
+    error_code := 0;
+    producer_id := v_new_id;
+    producer_epoch := v_new_epoch;
     RETURN NEXT;
 END;
 $$;

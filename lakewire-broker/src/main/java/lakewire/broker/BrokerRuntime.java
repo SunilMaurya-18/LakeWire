@@ -114,7 +114,7 @@ public final class BrokerRuntime implements AutoCloseable {
             );
             server = new KafkaServer(
                 config,
-                new RequestRouter(directory, config.brokerId(), pipeline, reader)
+                new RequestRouter(directory, config.brokerId(), pipeline, reader, coordinator)
             );
             server.start();
             int advertisedPort = config.advertisedPort() == 0 ? server.boundPort() : config.advertisedPort();

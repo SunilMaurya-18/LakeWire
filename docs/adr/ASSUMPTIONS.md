@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -41,3 +41,4 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A35 | Produce tuning env: `LAKEWIRE_LINGER_MS` (200), `LAKEWIRE_OBJECT_MAX_BYTES` (8 MiB), `LAKEWIRE_BUFFER_MAX_BYTES` (64 MiB), `LAKEWIRE_UPLOAD_CONCURRENCY` (4), `LAKEWIRE_OBJECT_PREFIX` (empty). A full buffer or a single chunk larger than the buffer fails the partition with `REQUEST_TIMED_OUT`. An ambiguous commit is retried up to 3 times; each call borrows a new pool connection, and `sl_commit_object` returns the stored offsets when the key already committed. | A12 names the numeric defaults. The prompt names neither the variables nor the retry count. |
 | A36 | Produce with a non-null `transactionalId`, and a transactional or control batch, is rejected. The id is `INVALID_REQUEST`. The batch is `INVALID_RECORD`. | Transactions are a non-goal (§2.3). A15 covers InitProducerId only. |
 | A37 | ListOffsets accepts `-2` (log start), `-1` (high watermark) and timestamps `>= 0`. Any other timestamp is `INVALID_REQUEST`. Fetch isolation level is ignored; both levels read the high watermark, and `lastStableOffset` is that watermark. | There are no transactions in v0.1. The prompt names the three lookup forms and not the other negative sentinels. |
+| A38 | A produce epoch other than `producer_ids.producer_epoch` is `INVALID_PRODUCER_EPOCH`. InitProducerId when Postgres is unreachable is `COORDINATOR_NOT_AVAILABLE`. | The prompt names the less-than epoch case. A higher epoch was not issued by InitProducerId. Produce stays on `REQUEST_TIMED_OUT` when the coordinator is down. InitProducerId uses the retriable coordinator code the prompt names. |

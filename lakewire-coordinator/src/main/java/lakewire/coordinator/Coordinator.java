@@ -98,6 +98,23 @@ public final class Coordinator implements AutoCloseable {
         }
     }
 
+    public ProducerIdAllocation initProducerId(long producerId, short epoch) {
+        String sql = "SELECT error_code, producer_id, producer_epoch FROM sl_init_producer_id(?, ?)";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, producerId);
+            statement.setShort(2, epoch);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new CoordinatorException("sl_init_producer_id returned no row");
+                }
+                return new ProducerIdAllocation(rows.getShort(1), rows.getLong(2), rows.getShort(3));
+            }
+        } catch (SQLException failure) {
+            throw new CoordinatorException("init producer id failed", failure);
+        }
+    }
+
     public List<CommitResult> commitOn(Connection connection, CommitRequest request) {
         try {
             return execute(connection, "sl_commit_object", request);

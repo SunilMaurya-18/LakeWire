@@ -110,6 +110,18 @@ final class ProduceCluster implements AutoCloseable {
         return runtime.port();
     }
 
+    String jdbcUrl() {
+        return postgres.getJdbcUrl();
+    }
+
+    String user() {
+        return postgres.getUsername();
+    }
+
+    String password() {
+        return postgres.getPassword();
+    }
+
     Path dataDir() {
         return dataDir;
     }
