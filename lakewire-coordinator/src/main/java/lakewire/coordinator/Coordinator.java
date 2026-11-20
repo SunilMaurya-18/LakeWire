@@ -53,15 +53,24 @@ public final class Coordinator implements AutoCloseable {
             return;
         }
         try {
-            Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
+            flyway().migrate();
             log.info("coordinator schema is current");
         } catch (RuntimeException failure) {
             throw new CoordinatorException("coordinator migration failed", failure);
         }
+    }
+
+    /** Admin only. Brokers and {@code lakewire dev} call {@link #start()}. */
+    public void validate() {
+        try {
+            flyway().validate();
+        } catch (RuntimeException failure) {
+            throw new CoordinatorException("coordinator schema validation failed", failure);
+        }
+    }
+
+    public List<String> trackedKeys() {
+        return queryTexts("SELECT key FROM objects UNION SELECT object_key FROM upload_intents");
     }
 
     public List<CommitResult> commit(CommitRequest request) {
@@ -209,6 +218,13 @@ public final class Coordinator implements AutoCloseable {
 
     public List<String> committedObjectKeys() {
         return queryTexts("SELECT sl_committed_object_keys()");
+    }
+
+    private Flyway flyway() {
+        return Flyway.configure()
+            .dataSource(dataSource)
+            .locations("classpath:db/migration")
+            .load();
     }
 
     private List<String> queryTexts(String sql, long... args) {

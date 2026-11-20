@@ -12,3 +12,10 @@ scrape_configs:
           - broker-c:9094
         labels:
           cluster: lakewire
+  - job_name: lakewire-admin
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - admin:8080
+        labels:
+          cluster: lakewire

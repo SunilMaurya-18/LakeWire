@@ -1,3 +1,8 @@
 #!/bin/sh
-main="${LAKEWIRE_MAIN:-lakewire.broker.LakeWireBroker}"
-exec java -cp "/opt/lakewire/cli.jar:/opt/lakewire/lib/*" "$main"
+if [ -f /opt/lakewire/cli.jar ]; then
+  jar=/opt/lakewire/cli.jar
+else
+  dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  jar="$dir/../lakewire-cli/target/lakewire-cli-0.1.0-SNAPSHOT-bin.jar"
+fi
+exec java ${JAVA_OPTS-} -jar "$jar" "$@"

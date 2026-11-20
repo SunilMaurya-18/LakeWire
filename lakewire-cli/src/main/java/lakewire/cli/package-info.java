@@ -1,2 +1,2 @@
-/** Command-line entry point for dev mode, topics, cost, verify, and inspect. */
+/** picocli entry point: dev, broker, worker, topics, cost, verify, inspect. */
 package lakewire.cli;

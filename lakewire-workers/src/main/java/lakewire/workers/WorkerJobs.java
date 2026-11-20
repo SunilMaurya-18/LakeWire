@@ -1,11 +1,17 @@
 package lakewire.workers;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import lakewire.coordinator.Coordinator;
 import lakewire.coordinator.RefcountMismatch;
+import lakewire.storage.ObjectHead;
 import lakewire.storage.ObjectNotFoundException;
 import lakewire.storage.ObjectStore;
 import org.slf4j.Logger;
@@ -59,12 +65,26 @@ public final class WorkerJobs {
     }
 
     public void audit() {
-        for (RefcountMismatch mismatch : coordinator.auditRefcounts()) {
+        AuditSnapshot snapshot = inspect();
+        for (RefcountMismatch mismatch : snapshot.refcountMismatches()) {
             log.error("I7 refcount mismatch key={} live_refs={} actual_refs={} live_bytes={} actual_bytes={}",
                 mismatch.key(), mismatch.liveRefs(), mismatch.actualRefs(),
                 mismatch.liveBytes(), mismatch.actualBytes());
             metrics.auditViolation("I7");
         }
+        for (String key : snapshot.missingCommittedKeys()) {
+            log.error("I7 COMMITTED object missing key={}", key);
+            metrics.auditViolation("I7");
+        }
+        for (String key : snapshot.leakedKeys()) {
+            log.error("I8 leak key={}", key);
+            metrics.auditViolation("I8");
+        }
+    }
+
+    public AuditSnapshot inspect() {
+        List<RefcountMismatch> mismatches = coordinator.auditRefcounts();
+        List<String> missing = new ArrayList<>();
         List<String> keys = coordinator.committedObjectKeys();
         int cap = config.auditHeadCap();
         int n = cap == 0 ? 0 : Math.min(cap, keys.size());
@@ -79,13 +99,48 @@ public final class WorkerJobs {
                 log.warn("I7 HEAD timed out for {}", key);
             } catch (ExecutionException failure) {
                 if (root(failure) instanceof ObjectNotFoundException) {
-                    log.error("I7 COMMITTED object missing key={}", key);
-                    metrics.auditViolation("I7");
+                    missing.add(key);
                 } else {
                     log.warn("I7 HEAD failed for {}: {}", key, failure.toString());
                 }
             }
         }
+        return new AuditSnapshot(List.copyOf(mismatches), List.copyOf(missing), leakedKeys());
+    }
+
+    private List<String> leakedKeys() {
+        Set<String> known = new HashSet<>(coordinator.trackedKeys());
+        List<String> listed;
+        try {
+            listed = store.list(config.objectPrefix()).get(STORE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("list interrupted", interrupted);
+        } catch (ExecutionException | TimeoutException failure) {
+            throw new IllegalStateException("list failed", failure);
+        }
+        Duration maxAge = Duration.ofMillis(config.orphanTtlMs() + config.gcPeriodMs());
+        Instant now = Instant.now();
+        List<String> leaks = new ArrayList<>();
+        for (String key : listed) {
+            if (known.contains(key)) {
+                continue;
+            }
+            try {
+                ObjectHead head = store.head(key).get(STORE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                if (Duration.between(head.lastModified(), now).compareTo(maxAge) >= 0) {
+                    leaks.add(key);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("head interrupted", interrupted);
+            } catch (TimeoutException failure) {
+                log.warn("I8 HEAD timed out for {}", key);
+            } catch (ExecutionException failure) {
+                log.warn("I8 HEAD failed for {}: {}", key, failure.toString());
+            }
+        }
+        return List.copyOf(leaks);
     }
 
     public void expireProducerState() {

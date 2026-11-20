@@ -1,5 +1,23 @@
-# Dev dependencies for LakeWire v0.1. Copy deploy/compose/.env.example to
-# deploy/compose/.env before `docker compose -f deploy/compose/compose.yaml up -d`.
+# 3-broker LakeWire cluster. Copy deploy/compose/.env.example to
+# deploy/compose/.env, then:
+#   docker compose -f deploy/compose/compose.yaml up -d
+x-broker-env: &broker-env
+  LAKEWIRE_HOST: 0.0.0.0
+  LAKEWIRE_PORT: "9092"
+  LAKEWIRE_ADVERTISED_HOST: localhost
+  LAKEWIRE_PG_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+  LAKEWIRE_PG_USER: ${POSTGRES_USER}
+  LAKEWIRE_PG_PASSWORD: ${POSTGRES_PASSWORD}
+  LAKEWIRE_STORAGE: s3
+  LAKEWIRE_S3_ENDPOINT: http://seaweedfs:8333
+  LAKEWIRE_S3_BUCKET: ${S3_BUCKET}
+  LAKEWIRE_S3_REGION: ${S3_REGION:-us-east-1}
+  LAKEWIRE_S3_PATH_STYLE: "true"
+  LAKEWIRE_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  LAKEWIRE_S3_SECRET_KEY: ${S3_SECRET_KEY}
+  LAKEWIRE_METRICS_PORT: "9094"
+  LAKEWIRE_WORKERS: "true"
+
 services:
   postgres:
     image: postgres:18.7-alpine
@@ -10,7 +28,6 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      # PostgreSQL 18 keeps the data directory under this path, not .../data.
       - lakewire_pg:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
@@ -21,11 +38,12 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:4.54
-    command: ["server", "-s3", "-dir=/data"]
+    command: ["server", "-s3", "-s3.config=/etc/seaweed-s3.json", "-dir=/data"]
     ports:
       - "${S3_PORT:-8333}:8333"
     volumes:
       - lakewire_seaweed:/data
+      - ./seaweed-s3.json:/etc/seaweed-s3.json:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
       interval: 5s
@@ -45,6 +63,152 @@ services:
     command:
       - "printf 's3.bucket.create -name %s\\n' \"$$S3_BUCKET\" | weed shell -master=seaweedfs:9333"
 
+  broker-a:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: lakewire:0.1.0-SNAPSHOT
+    command: ["broker"]
+    environment:
+      <<: *broker-env
+      LAKEWIRE_BROKER_ID: "1"
+      LAKEWIRE_ZONE: a
+      LAKEWIRE_ADVERTISED_PORT: "9092"
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweed-bucket-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9094'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 40s
+
+  broker-b:
+    image: lakewire:0.1.0-SNAPSHOT
+    command: ["broker"]
+    environment:
+      <<: *broker-env
+      LAKEWIRE_BROKER_ID: "2"
+      LAKEWIRE_ZONE: b
+      LAKEWIRE_ADVERTISED_PORT: "9192"
+    ports:
+      - "9192:9092"
+      - "9194:9094"
+    depends_on:
+      broker-a:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9094'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 40s
+
+  broker-c:
+    image: lakewire:0.1.0-SNAPSHOT
+    command: ["broker"]
+    environment:
+      <<: *broker-env
+      LAKEWIRE_BROKER_ID: "3"
+      LAKEWIRE_ZONE: c
+      LAKEWIRE_ADVERTISED_PORT: "9292"
+    ports:
+      - "9292:9092"
+      - "9294:9094"
+    depends_on:
+      broker-a:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9094'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 40s
+
+  admin:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.admin
+    image: lakewire-admin:0.1.0-SNAPSHOT
+    environment:
+      LAKEWIRE_ADMIN_PORT: "8080"
+      LAKEWIRE_PG_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      LAKEWIRE_PG_USER: ${POSTGRES_USER}
+      LAKEWIRE_PG_PASSWORD: ${POSTGRES_PASSWORD}
+      LAKEWIRE_MIGRATE: "false"
+      LAKEWIRE_STORAGE: s3
+      LAKEWIRE_S3_ENDPOINT: http://seaweedfs:8333
+      LAKEWIRE_S3_BUCKET: ${S3_BUCKET}
+      LAKEWIRE_S3_REGION: ${S3_REGION:-us-east-1}
+      LAKEWIRE_S3_PATH_STYLE: "true"
+      LAKEWIRE_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      LAKEWIRE_S3_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      - "${ADMIN_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker-a:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      broker-a:
+        condition: service_healthy
+      broker-b:
+        condition: service_healthy
+      broker-c:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in deploy/compose/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/lakewire-dashboard.json:/var/lib/grafana/dashboards/lakewire-dashboard.json:ro
+      - lakewire_grafana:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
 volumes:
   lakewire_pg:
   lakewire_seaweed:
+  lakewire_grafana:

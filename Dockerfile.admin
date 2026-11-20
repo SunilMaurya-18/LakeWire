@@ -1,0 +1,12 @@
+FROM eclipse-temurin:21.0.13_9-jdk-noble AS build
+WORKDIR /src
+COPY . .
+RUN chmod +x mvnw && ./mvnw -B -DskipTests package -pl lakewire-admin -am
+
+FROM eclipse-temurin:21.0.13_9-jre-noble
+RUN useradd --create-home --uid 10001 lakewire
+WORKDIR /opt/lakewire
+COPY --from=build /src/lakewire-admin/target/lakewire-admin-0.1.0-SNAPSHOT-exec.jar /opt/lakewire/admin.jar
+USER lakewire
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/opt/lakewire/admin.jar"]
