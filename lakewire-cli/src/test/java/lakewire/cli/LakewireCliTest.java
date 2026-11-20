@@ -36,4 +36,10 @@ class LakewireCliTest {
         assertThat(code).isZero();
         assertThat(out.toString()).contains("$0.0533").contains("$0.0008");
     }
+
+    @Test
+    void describePartitionLineShowsLogStartAndHighWatermark() {
+        assertThat(TopicsCommand.Describe.partitionLine(0, 1, 5L, 42L))
+            .isEqualTo("  0 leader=1 logStart=5 highWatermark=42");
+    }
 }
