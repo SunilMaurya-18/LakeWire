@@ -315,6 +315,14 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.jreleaser</groupId>
+                <artifactId>jreleaser-maven-plugin</artifactId>
+                <inherited>false</inherited>
+                <configuration>
+                    <configFile>${project.basedir}/jreleaser.yml</configFile>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

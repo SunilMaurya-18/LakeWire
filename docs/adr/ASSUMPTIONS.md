@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9. A51–A53 were added in M10.
+Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9. A51–A53 were added in M10. A54–A61 were added in M11. A62–A64 were added in M12.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A37 | ListOffsets accepts `-2` (log start), `-1` (high watermark) and timestamps `>= 0`. Any other timestamp is `INVALID_REQUEST`. Fetch isolation level is ignored; both levels read the high watermark, and `lastStableOffset` is that watermark. | There are no transactions in v0.1. The prompt names the three lookup forms and not the other negative sentinels. |
 | A38 | A produce epoch other than `producer_ids.producer_epoch` is `INVALID_PRODUCER_EPOCH`. InitProducerId when Postgres is unreachable is `COORDINATOR_NOT_AVAILABLE`. | The prompt names the less-than epoch case. A higher epoch was not issued by InitProducerId. Produce stays on `REQUEST_TIMED_OUT` when the coordinator is down. InitProducerId uses the retriable coordinator code the prompt names. |
 | A39 | `sl_heartbeat` extends the lease only when the epoch matches and `lease_expires_at > now()`. An expired lease returns false; the broker re-registers. | A paused broker must not refresh its lease on unpause and then commit the upload it started under the old epoch. |
-| A40 | The broker image runs `bin/lakewire`. `LAKEWIRE_MAIN` defaults to `lakewire.broker.LakeWireBroker`. The classpath is the cli jar plus runtime jars copied by maven-dependency-plugin 3.11.0 (Apache-2.0). | M11 replaces the entrypoint with the shaded CLI. Copying jars keeps Flyway and AWS CRT service files intact until then. |
+| A40 | The broker image runs the shaded CLI (`lakewire broker`). Flyway and AWS service files are merged with `ServicesResourceTransformer`. | M11. |
 | A41 | `LakeWireCluster` builds that Dockerfile with `docker build`. Testcontainers `ImageFromDockerfile` is not used. | Its context upload is a 1 KiB pipe. On Windows the pipe fills and the client blocks after the daemon has already produced the image. |
 | A42 | A failed S3 conditional-PUT probe logs a warning and falls back to HEAD-before-PUT instead of aborting broker start. Cluster tests talk to SeaweedFS directly; only the pause test routes PUTs through Toxiproxy. | SeaweedFS and Toxiproxy can close the first probe sockets before the S3 API is ready. Startup should not depend on that race. |
 | A43 | The worker advisory lock is `pg_try_advisory_lock(87001108)`. | The prompt asks for a constant; session lock release on disconnect is the leadership signal. |
@@ -57,3 +57,14 @@ Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire
 | A51 | Classic storage in `lakewire-cost` is 3 × EBS gp3 list ($0.08/GB-month). No extra headroom multiplier. | §12.1 shows storage separately and mentions headroom only as a qualitative note. |
 | A52 | `LAKEWIRE_METRICS_PORT` 0 binds an ephemeral port (tests). Production default remains 9094 (A18). | Parallel ITs would collide on a fixed 9094. |
 | A53 | First `bench/e2e` CSVs are laptop-labelled 1-broker SeaweedFS runs, not a compose 3-broker cluster. Compose scripts wait for M11. | M10 compose still has only Postgres + SeaweedFS. |
+| A54 | `lakewire dev` stores Postgres and objects under `~/.lakewire/dev` (`--home` overrides). Zonky `synchronous_commit` is set to `on`. | The prompt names the directory and not the Zonky default, which is off. |
+| A55 | Admin reads `LAKEWIRE_*` from the Spring `Environment` (env vars and test properties). It never migrates; `Coordinator.validate()` runs at bean creation. | A22. Tests cannot rewrite `System.getenv`. |
+| A56 | Compose brokers advertise `localhost` plus 9092/9192/9292 so host clients work. Seaweed compose identity is `lakewire/lakewire` to match `.env.example`. | Leadership is a routing hint; brokers do not connect to each other in v0.1. |
+| A57 | `DevModeIT` allows 30 s for first binary unpack. First measured ready time on this laptop was 14.7 s. | Zonky extracts Postgres 18.7 on the first run. |
+| A58 | Admin port is `LAKEWIRE_ADMIN_PORT` (default 8080). | §10.2 names 8080, not the variable. |
+| A59 | Admin pins `logback-core` and `logback-classic` 1.6.7 over Boot 4.1.2's `logback-core` 1.5.38. HikariCP stays 7.1.0. | Mixed logback artifacts warn at startup. |
+| A60 | The Boot repackage jar uses classifier `exec` so failsafe still sees a plain jar. | Fat jars hide `@SpringBootConfiguration` from tests. |
+| A61 | The CLI shade jar is attached as classifier `bin`; the main artifact stays thin. | Failsafe otherwise loads Zonky binaries twice (fat jar + Maven dep). |
+| A62 | GitHub Pages deploys a static `site/` copy of `docs/` plus `web/public` HTML. Next.js App Router files under `web/src/app` are not rebuilt. | Those route files are empty stubs; A19 forbids rewriting the marketing pages. `tallyfold.html` stays the landing page. |
+| A63 | Pages workflow uses `upload-pages-artifact` v3.0.1 and `deploy-pages` v4.0.5 (not in the pin table). | Required to publish the static catalog. |
+| A64 | JReleaser ships the CLI `*-bin.jar` as a `SINGLE_JAR` distribution; signing is off. Dry run still needs `JRELEASER_GITHUB_TOKEN` (any placeholder). Plugin is not inherited by modules. | No signing key in CI. Version stays `0.1.0-SNAPSHOT` until a separate bump. |

@@ -1,0 +1,47 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Assemble static docs
+        run: |
+          mkdir -p site/manual
+          cp web/public/manual/index.html site/manual/index.html
+          cp GUARANTEES.md site/manual/GUARANTEES.md
+          cp -r docs/tutorials docs/how-to docs/reference docs/explanation docs/reports docs/adr site/manual/
+          cp docs/index.md site/manual/index.md
+          cp web/public/*.html site/ || true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3.0.1
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4.0.5

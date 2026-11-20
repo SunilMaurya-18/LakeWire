@@ -1,0 +1,16 @@
+name: Feature
+description: A P0/P1 gap or docs fix
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: ask
+    attributes:
+      label: What and why
+    validations:
+      required: true
+  - type: dropdown
+    id: prd
+    attributes:
+      label: In the v0.1 PRD?
+      options: ["yes P0", "yes later", "no / assumption"]

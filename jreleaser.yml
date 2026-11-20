@@ -1,0 +1,40 @@
+project:
+  name: lakewire
+  description: Diskless Kafka-compatible log on PostgreSQL and S3
+  longDescription: Speaks a Kafka protocol subset. Data in object storage. Coordination in Postgres.
+  links:
+    homepage: https://github.com/SunilMaurya-18/lakewire
+    documentation: https://sunilmaurya-18.github.io/lakewire/manual/
+  authors:
+    - Sunil Maurya
+  license: Apache-2.0
+  inceptionYear: 2026
+  languages:
+    java:
+      version: "21"
+      groupId: lakewire
+      artifactId: lakewire-cli
+      mainClass: lakewire.cli.LakewireCli
+
+release:
+  github:
+    owner: SunilMaurya-18
+    name: lakewire
+    overwrite: false
+    changelog:
+      enabled: true
+      formatted: ALWAYS
+      preset: conventional-commits
+
+checksum:
+  individual: true
+
+signing:
+  active: NEVER
+
+distributions:
+  lakewire-cli:
+    type: SINGLE_JAR
+    active: ALWAYS
+    artifacts:
+      - path: lakewire-cli/target/lakewire-cli-{{projectVersion}}-bin.jar
