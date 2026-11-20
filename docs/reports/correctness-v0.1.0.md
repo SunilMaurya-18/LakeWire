@@ -23,11 +23,13 @@ Harness: `lakewire.verify.LakeWireVerify`.
 
 ## Runs recorded locally (M9–M12)
 
+Full-repo `.\mvnw.cmd -B verify` on 20 Nov 2026 (Windows 11, Java 21/26, Docker Desktop): **BUILD SUCCESS**, 11:45 min. `VerifySmokeIT` 251.9 s seed 42; `ThreeBrokerIT` 87 s; `ZombieBrokerIT` 28.9 s; `BrokerKillIT` recovery 370 ms; `DevModeIT` ready 9752 ms.
+
 | Run | Duration | Seed | Nemeses | Result |
 | --- | --- | --- | --- | --- |
-| PR smoke (`VerifySmokeIT`) | 3 m | 42 | kill, pause, partition-pg | PASS (M9; re-run after CLI image fix) |
+| PR smoke (`VerifySmokeIT`) | 3 m | 42 | kill, pause, partition-pg | PASS (20 Nov 2026 full verify) |
 | `ThreeBrokerIT` | one shot | n/a | zone metadata | PASS |
-| `BrokerKillIT` | one shot | n/a | kill | PASS |
+| `BrokerKillIT` | one shot | n/a | kill | PASS (370 ms resume) |
 | `ZombieBrokerIT` | one shot | n/a | pause | PASS |
 | `IdempotentProducerIT` | one shot | n/a | I5 | PASS |
 | `RetentionStormIT` | one shot | n/a | retention-storm | PASS |
