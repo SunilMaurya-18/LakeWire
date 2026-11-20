@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.kafka.common.protocol.Errors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class ErrorMappingTest {
 
@@ -46,5 +48,13 @@ class ErrorMappingTest {
     void producerCoordinatorUnavailableIsCoordinatorNotAvailable() {
         assertThat(ErrorMapping.PRODUCER_COORDINATOR_UNAVAILABLE.code())
             .isEqualTo(Errors.COORDINATOR_NOT_AVAILABLE.code());
+    }
+
+    @ParameterizedTest
+    @EnumSource(ErrorMapping.class)
+    void everyRowIsAShortCodeWithoutStackTrace(ErrorMapping mapping) {
+        assertThat(mapping.code()).isNotEqualTo(Errors.NONE.code());
+        assertThat(Errors.forCode(mapping.code())).isEqualTo(mapping.error());
+        assertThat(String.valueOf(mapping.error().message())).doesNotContain("\tat ", "Exception in thread");
     }
 }
