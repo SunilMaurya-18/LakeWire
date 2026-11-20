@@ -1,0 +1,9 @@
+﻿# label=laptop
+# tool=kafka-consumer-perf-test.sh
+# image=apache/kafka:4.4.0
+# bootstrap=127.0.0.1:9092
+# topic=bench
+# messages=20000
+# hardware=Microsoft Windows NT 10.0.26300.0 X64
+# timestamp=2026-11-20T13:10:57Z
+mb_sec,records_per_sec
