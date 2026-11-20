@@ -9,6 +9,7 @@ Diátaxis layout. Markdown here is the source; GitHub Pages serves it under `/ma
 
 ## How-to
 
+- [Helm values sketch](how-to/helm-values.md)
 - [S3 providers](how-to/s3-providers.md)
 - [Tuning linger](how-to/tuning-linger.md)
 
