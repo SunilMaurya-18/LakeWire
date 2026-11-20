@@ -10,7 +10,7 @@ body:
     validations:
       required: true
   - type: dropdown
-    id: prd
+    id: scope
     attributes:
-      label: In the v0.1 PRD?
+      label: In v0.1 scope?
       options: ["yes P0", "yes later", "no / assumption"]

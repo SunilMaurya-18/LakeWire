@@ -1,6 +1,6 @@
 # Assumptions
 
-Where the PRD is silent or outdated. A1–A24 are copied from `docs/prd/LakeWire-Phase1-Cursor-Prompts.md` Part 5. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9. A51–A53 were added in M10. A54–A61 were added in M11. A62–A64 were added in M12.
+Where the v0.1 spec is silent or outdated. A1–A24 were recorded in phase 1. A25 was added in M0. A26–A28 were added in M1. A29–A32 were added in M2. A33–A34 were added in M3. A35–A36 were added in M4. A37 was added in M5. A38 was added in M6. A39–A42 were added in M7. A43–A47 were added in M8. A48–A50 were added in M9. A51–A53 were added in M10. A54–A61 were added in M11. A62–A64 were added in M12.
 
 | Id | Decision | Reason |
 | --- | --- | --- |
