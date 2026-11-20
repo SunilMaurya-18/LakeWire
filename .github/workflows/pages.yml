@@ -29,6 +29,7 @@ jobs:
           cp -r docs/tutorials docs/how-to docs/reference docs/explanation docs/reports docs/adr site/manual/
           cp docs/index.md site/manual/index.md
           cp web/public/*.html site/ || true
+          cp web/public/tallyfold.html site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3.0.1

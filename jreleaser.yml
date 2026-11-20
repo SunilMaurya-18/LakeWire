@@ -3,8 +3,8 @@ project:
   description: Diskless Kafka-compatible log on PostgreSQL and S3
   longDescription: Speaks a Kafka protocol subset. Data in object storage. Coordination in Postgres.
   links:
-    homepage: https://github.com/SunilMaurya-18/lakewire
-    documentation: https://sunilmaurya-18.github.io/lakewire/manual/
+    homepage: https://github.com/SunilMaurya-18/LakeWire
+    documentation: https://sunilmaurya-18.github.io/LakeWire/manual/
   authors:
     - Sunil Maurya
   license: Apache-2.0
