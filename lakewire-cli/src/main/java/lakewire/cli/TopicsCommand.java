@@ -1,5 +1,6 @@
 package lakewire.cli;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -7,8 +8,12 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -100,11 +105,32 @@ final class TopicsCommand {
                     .allTopicNames()
                     .get(20, TimeUnit.SECONDS)
                     .get(name);
+                Map<TopicPartition, OffsetSpec> earliest = new HashMap<>();
+                Map<TopicPartition, OffsetSpec> latest = new HashMap<>();
+                for (TopicPartitionInfo partition : description.partitions()) {
+                    TopicPartition tp = new TopicPartition(name, partition.partition());
+                    earliest.put(tp, OffsetSpec.earliest());
+                    latest.put(tp, OffsetSpec.latest());
+                }
+                Map<TopicPartition, ListOffsetsResultInfo> logStart =
+                    admin.listOffsets(earliest).all().get(20, TimeUnit.SECONDS);
+                Map<TopicPartition, ListOffsetsResultInfo> highWatermark =
+                    admin.listOffsets(latest).all().get(20, TimeUnit.SECONDS);
                 System.out.println(name + " partitions=" + description.partitions().size());
-                description.partitions().forEach(partition ->
-                    System.out.println("  " + partition.partition() + " leader=" + partition.leader().id()));
+                for (TopicPartitionInfo partition : description.partitions()) {
+                    TopicPartition tp = new TopicPartition(name, partition.partition());
+                    System.out.println(partitionLine(
+                        partition.partition(),
+                        partition.leader().id(),
+                        logStart.get(tp).offset(),
+                        highWatermark.get(tp).offset()));
+                }
             }
             return 0;
+        }
+
+        static String partitionLine(int partition, int leader, long logStart, long highWatermark) {
+            return "  " + partition + " leader=" + leader + " logStart=" + logStart + " highWatermark=" + highWatermark;
         }
     }
 
