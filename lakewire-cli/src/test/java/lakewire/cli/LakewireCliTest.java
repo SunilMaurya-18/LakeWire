@@ -1,5 +1,6 @@
 package lakewire.cli;
 
+import java.io.BufferedWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
@@ -35,5 +36,14 @@ class LakewireCliTest {
         );
         assertThat(code).isZero();
         assertThat(out.toString()).contains("$0.0533").contains("$0.0008");
+    }
+
+    @Test
+    void costFlushesBufferedOutput() {
+        StringWriter out = new StringWriter();
+        int code = LakewireCli.execute(
+            new String[] {"cost"}, new PrintWriter(new BufferedWriter(out)), new PrintWriter(out, true));
+        assertThat(code).isZero();
+        assertThat(out.toString()).contains("$0.0533");
     }
 }

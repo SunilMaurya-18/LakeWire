@@ -45,6 +45,10 @@ public final class LakewireCli implements Callable<Integer> {
             cmd.getErr().println(ex.getMessage() == null ? ex.toString() : ex.getMessage());
             return 1;
         });
-        return command.execute(args);
+        int code = command.execute(args);
+        // picocli's default writers flush only on println; print() output would be lost at System.exit.
+        command.getOut().flush();
+        command.getErr().flush();
+        return code;
     }
 }
