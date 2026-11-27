@@ -1,6 +1,6 @@
 # Cost model
 
-`lakewire cost` implements PRD §12.1. Prices: `lakewire-cost/src/main/resources/prices/aws-us-east-1.properties` (us-east-1, dated in comments). Override with `--prices`.
+`lakewire cost` implements PRD §12.1. Prices: `lakewire-cost/src/main/resources/prices/aws-us-east-1.properties` (us-east-1, dated in comments). Override with `--prices`; `prices/gcp-us-central1.properties` holds GCP us-central1 list prices (GCS Standard, pd-balanced, inter-zone $0.01/GiB billed once).
 
 Per GiB written, 3 zones, 8 MiB objects (reproduced in `CostModelTest`):
 

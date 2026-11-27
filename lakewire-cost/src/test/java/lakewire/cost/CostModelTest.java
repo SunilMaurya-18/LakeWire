@@ -1,5 +1,7 @@
 package lakewire.cost;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 
@@ -42,5 +44,18 @@ class CostModelTest {
         );
         CostEstimate estimate = new CostModel(prices).estimate(CostQuery.tableDefault());
         assertThat(estimate.classicTransfer()).isEqualByComparingTo("0.0533");
+    }
+
+    @Test
+    void gcpUsCentral1PricesLoad() throws IOException {
+        try (InputStream in = CostPrices.class.getResourceAsStream("/prices/gcp-us-central1.properties")) {
+            assertThat(in).isNotNull();
+            CostPrices prices = CostPrices.load(in);
+            assertThat(prices.interAzPerGb()).isEqualByComparingTo("0.01");
+            assertThat(prices.s3PutPerThousand()).isEqualByComparingTo("0.005");
+            assertThat(prices.s3GetPerThousand()).isEqualByComparingTo("0.0004");
+            assertThat(prices.s3GbMonth()).isEqualByComparingTo("0.020");
+            assertThat(prices.ebsGbMonth()).isEqualByComparingTo("0.10");
+        }
     }
 }
